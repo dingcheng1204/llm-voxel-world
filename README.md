@@ -11,6 +11,8 @@
 
 外觀只是外觀——4 個角色能力完全一樣，差別只在操控的 LLM。
 
+線上版：https://llm-voxel-world.vercel.app （push 到 `main` 自動部署）
+
 ## 文件
 - [docs/BLUEPRINT.md](docs/BLUEPRINT.md) — 架構、資料模型、API、AI 角色設計、風險
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 分階段開發清單（0 → 7）

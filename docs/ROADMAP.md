@@ -10,7 +10,7 @@
 - [x] 畫面上出現方塊（先用 worker 產生的種子地形 + 自動飛行鏡頭展示）
 - [x] F3 debug overlay：FPS、1% low、draw calls、三角形數、chunk 狀態
 - [x] 效能原則文件 `docs/PERFORMANCE.md`
-- [ ] 連上 Vercel，push 就自動部署
+- [x] 連上 Vercel，push 到 main 自動部署正式版、PR 自動產生預覽網址
 
 ## 階段 1 — 方塊世界 MVP
 - [x] `world/coords.ts`、`world/blocks.ts`（照 voxel-engine skill）
@@ -18,7 +18,6 @@
 - [x] `world/terrain.ts`：seed + simplex noise，草/土/石/基岩/沙/水/樹
 - [x] face-culling mesher（在 worker）；跨 chunk 邊界正確
 - [x] chunk manager：由近到遠載入、卸載、dispose
-- [ ] 貼圖 atlas（16px，NearestFilter）
 - [ ] 第一人稱：PointerLockControls、WASD、跳、衝刺
 - [ ] AABB 碰撞（固定 60Hz 物理步進）
 - [ ] voxel DDA raycast；左鍵挖、右鍵放；選取框
@@ -34,7 +33,7 @@
 - [ ] 日夜循環（1 遊戲日 = 20 分鐘），天空顏色、太陽光
 - [x] 水網格（湖、井）；海用動畫平面
 - [x] 島嶼擴大到 192×288，加入雪山、火山、森林、花草原、湖與更多素材
-- [ ] ✅ 驗收：render distance 8 仍 ≥ 60 FPS；draw calls < 200
+- [ ] ✅ 驗收：整座島 ≥ 60 FPS；draw calls < 400；三角形 < 500k
 
 ## 階段 3 — 角色身體（還沒接 LLM）
 - [x] `agents/AgentBody.ts`：共用身體；4 種可愛動物模型（貓/狐狸/狼/蛇）+ 名牌
