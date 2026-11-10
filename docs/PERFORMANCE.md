@@ -4,11 +4,11 @@
 
 ## 預算
 
-| 指標 | 目標（render distance 6，一般筆電內顯） |
+| 指標 | 目標（整座島，一般筆電內顯） |
 |---|---|
 | FPS | ≥ 60，1% low ≥ 45 |
 | 每幀 JS 時間 | < 6 ms |
-| Draw calls | < 200 |
+| Draw calls | < 200（目前整座島約 43） |
 | 三角形 | < 500k |
 | 單一 chunk 重建 | 在 worker 裡完成，主執行緒 0 ms |
 
@@ -31,6 +31,8 @@ F3 overlay 會即時顯示上面這些數字。要看的是 **1% low**：平均 
 | 舊 geometry 一定 `dispose()` | `world/world.ts` | 洩漏 GPU 記憶體是最常見的掉幀原因 |
 | 地形生成分時（每幀 4 ms） | `world/world.ts` (`?gen=`) | 走到新區域不會一次卡住 |
 | 由近到遠載入 | `world/world.ts` `spiral()` | 身邊先出現 |
+| 裝飾物用 InstancedMesh | `scene/props.ts`、`scene/fire.ts` | 每種椰子樹/石頭/火焰只要 1 個 draw call |
+| 海浪在 vertex shader 算 | `scene/environment.ts` | 動畫不佔 CPU |
 | Overlay 每秒只更新 4 次 DOM | `engine/debugOverlay.ts` | DOM 寫入不便宜 |
 
 ## 之後各階段要加的
@@ -44,7 +46,7 @@ F3 overlay 會即時顯示上面這些數字。要看的是 **1% low**：平均 
 
 1. `npm run dev`，按 F3 看數字。
 2. 用 Chrome DevTools MCP：`performance_start_trace` → 跑 10 秒 → 看最慢的函式，**先量再改**。
-3. URL 參數快速實驗：`?rd=8`（視距）、`?pr=1`（解析度）、`?aa=1`（反鋸齒）、`?seed=42`。
+3. URL 參數快速實驗：`?pr=1`（解析度）、`?aa=1`（反鋸齒）、`?seed=42`。
 4. 在 console 用 `__game.world.stats` 看 chunk 狀態。
 
 > 注意：沒有 GPU 的雲端環境（SwiftShader 軟體渲染）只會有約 20 FPS，數字沒有參考價值，一定要在真的電腦上量。

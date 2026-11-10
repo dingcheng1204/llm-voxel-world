@@ -54,3 +54,22 @@ describe('meshChunk', () => {
     expect(meshChunk(volume([[1, 1, 1, B.stone]])).opaque.indices).toBeInstanceOf(Uint16Array);
   });
 });
+
+describe('meshChunk materials', () => {
+  it('does not mesh fire blocks (drawn by FireSystem) and does not hide neighbours behind them', () => {
+    const m = meshChunk(volume([[5, 10, 5, B.fire], [6, 10, 5, B.stone]]));
+    expect(m.opaque.vertexCount).toBe(6 * 4);
+  });
+
+  it('uses the top colour on top faces', () => {
+    const m = meshChunk(volume([[5, 10, 5, B.grass]]));
+    // find a vertex of the top face (y = 11) and check it is green-dominant
+    for (let v = 0; v < m.opaque.vertexCount; v++) {
+      if (m.opaque.positions[v * 3 + 1] === 11) {
+        const [r, g, b] = [0, 1, 2].map((k) => m.opaque.colors[v * 3 + k]!);
+        expect(g).toBeGreaterThan(r!);
+        expect(g).toBeGreaterThan(b!);
+      }
+    }
+  });
+});

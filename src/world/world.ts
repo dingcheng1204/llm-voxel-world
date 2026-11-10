@@ -3,7 +3,8 @@ import { Chunk } from './chunk';
 import { CHUNK_X, CHUNK_Y, CHUNK_Z, PAD_VOLUME, chunkKey, localIndex, paddedIndex, type ChunkKey } from './coords';
 import type { ChunkMeshData, MeshPart } from './mesher';
 import { MeshWorkerPool } from './meshWorkerPool';
-import { TerrainGenerator } from './terrain';
+import { B } from './blocks';
+import { ISLAND_CHUNKS, TerrainGenerator } from './terrain';
 
 interface ChunkEntry {
   chunk: Chunk;
@@ -20,6 +21,14 @@ export interface WorldOptions {
   renderDistance: number;
   /** Max milliseconds per frame spent generating terrain on the main thread. */
   genBudgetMs: number;
+  /** Finite world: only these chunks exist; everything outside is ocean. Defaults to the island. */
+  bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
+}
+
+export interface BlockPos {
+  x: number;
+  y: number;
+  z: number;
 }
 
 // One material per pass, shared by every chunk → minimal state changes per draw call.
@@ -40,17 +49,32 @@ const CHUNK_SPHERE = new THREE.Sphere(
 );
 const CHUNK_BOX = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(CHUNK_X, CHUNK_Y, CHUNK_Z));
 
+const EMPTY_CHUNK = new Chunk(0, 0);
+
 export class World {
   readonly group = new THREE.Group();
   private readonly chunks = new Map<ChunkKey, ChunkEntry>();
-  private readonly terrain: TerrainGenerator;
+  readonly terrain: TerrainGenerator;
+  private readonly bounds;
+  /** World positions of fire blocks (rendered by FireSystem). `fireVersion` bumps on change. */
+  private readonly fireByChunk = new Map<ChunkKey, BlockPos[]>();
+  fireVersion = 0;
   private readonly pool = new MeshWorkerPool();
-  private center: [number, number] = [Number.NaN, Number.NaN];
   private wanted: [number, number][] = [];
 
   constructor(private readonly opts: WorldOptions) {
     this.terrain = new TerrainGenerator(opts.seed);
+    this.bounds = opts.bounds ?? ISLAND_CHUNKS;
     this.group.name = 'world';
+  }
+
+  get fires(): BlockPos[] {
+    return [...this.fireByChunk.values()].flat();
+  }
+
+  private inBounds(cx: number, cz: number): boolean {
+    const b = this.bounds;
+    return cx >= b.minX && cx <= b.maxX && cz >= b.minZ && cz <= b.maxZ;
   }
 
   get stats() {
@@ -64,13 +88,14 @@ export class World {
   }
 
   /** Call once per frame with the camera/player position. */
-  update(pos: THREE.Vector3): void {
-    const cx = Math.floor(pos.x / CHUNK_X);
-    const cz = Math.floor(pos.z / CHUNK_Z);
-    if (cx !== this.center[0] || cz !== this.center[1]) {
-      this.center = [cx, cz];
-      this.wanted = spiral(cx, cz, this.opts.renderDistance + 1); // +1 ring so border chunks have neighbours
-      this.unloadFar(cx, cz);
+  update(_pos: THREE.Vector3): void {
+    if (this.wanted.length === 0) {
+      // Finite world: want every chunk in bounds, nearest to the centre first.
+      const b = this.bounds;
+      const mx = Math.round((b.minX + b.maxX) / 2);
+      const mz = Math.round((b.minZ + b.maxZ) / 2);
+      const r = Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
+      this.wanted = spiral(mx, mz, r).filter(([x, z]) => this.inBounds(x, z));
     }
 
     // Time-sliced generation: never spend more than genBudgetMs per frame.
@@ -79,19 +104,36 @@ export class World {
       if (performance.now() > deadline) break;
       const key = chunkKey(x, z);
       if (!this.chunks.has(key)) {
-        this.chunks.set(key, { chunk: this.terrain.generate(x, z), version: 1, meshedVersion: 0, meshing: false });
+        const chunk = this.terrain.generate(x, z);
+        this.chunks.set(key, { chunk, version: 1, meshedVersion: 0, meshing: false });
+        this.indexFires(key, chunk);
       }
     }
 
-    // Dispatch meshing for chunks inside the render radius whose 4 neighbours exist.
-    const r = this.opts.renderDistance;
+    // Dispatch meshing for chunks whose in-bounds neighbours exist.
     for (const [x, z] of this.wanted) {
-      if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r) continue;
       const e = this.chunks.get(chunkKey(x, z));
       if (!e || e.meshing || e.meshedVersion === e.version) continue;
       const padded = this.buildPadded(x, z);
       if (!padded) continue;
       this.dispatchMesh(e, padded);
+    }
+  }
+
+  private indexFires(key: ChunkKey, chunk: Chunk): void {
+    const list: BlockPos[] = [];
+    const b = chunk.blocks;
+    for (let i = 0; i < b.length; i++) {
+      if (b[i] !== B.fire) continue;
+      const lx = i % CHUNK_X;
+      const lz = Math.floor(i / CHUNK_X) % CHUNK_Z;
+      const y = Math.floor(i / (CHUNK_X * CHUNK_Z));
+      list.push({ x: chunk.cx * CHUNK_X + lx, y, z: chunk.cz * CHUNK_Z + lz });
+    }
+    if (list.length > 0 || this.fireByChunk.has(key)) {
+      if (list.length > 0) this.fireByChunk.set(key, list);
+      else this.fireByChunk.delete(key);
+      this.fireVersion++;
     }
   }
 
@@ -110,7 +152,7 @@ export class World {
     e.meshing = true;
     const version = e.version;
     this.pool
-      .mesh(padded)
+      .mesh(padded, e.chunk.cx, e.chunk.cz)
       .then((data) => {
         e.meshing = false;
         if (this.chunks.get(chunkKey(e.chunk.cx, e.chunk.cz)) !== e) return; // unloaded meanwhile
@@ -159,10 +201,13 @@ export class World {
   /** Chunk + one-block border from its 4 neighbours, or null if a neighbour isn't generated yet. */
   private buildPadded(cx: number, cz: number): Uint8Array | null {
     const self = this.chunks.get(chunkKey(cx, cz))?.chunk;
-    const n = this.chunks.get(chunkKey(cx, cz - 1))?.chunk;
-    const s = this.chunks.get(chunkKey(cx, cz + 1))?.chunk;
-    const w = this.chunks.get(chunkKey(cx - 1, cz))?.chunk;
-    const ea = this.chunks.get(chunkKey(cx + 1, cz))?.chunk;
+    // Neighbours outside the world bounds are open ocean (empty).
+    const nb = (x: number, z: number) =>
+      this.inBounds(x, z) ? this.chunks.get(chunkKey(x, z))?.chunk : EMPTY_CHUNK;
+    const n = nb(cx, cz - 1);
+    const s = nb(cx, cz + 1);
+    const w = nb(cx - 1, cz);
+    const ea = nb(cx + 1, cz);
     if (!self || !n || !s || !w || !ea) return null;
     const out = new Uint8Array(PAD_VOLUME);
     const src = self.blocks;
@@ -182,13 +227,6 @@ export class World {
     return out;
   }
 
-  private unloadFar(cx: number, cz: number): void {
-    const keep = this.opts.renderDistance + 2;
-    for (const [key, e] of this.chunks) {
-      if (Math.max(Math.abs(e.chunk.cx - cx), Math.abs(e.chunk.cz - cz)) > keep) this.unload(key);
-    }
-  }
-
   private unload(key: ChunkKey): void {
     const e = this.chunks.get(key);
     if (!e) return;
@@ -198,6 +236,7 @@ export class World {
       m.geometry.dispose();
     }
     this.chunks.delete(key);
+    if (this.fireByChunk.delete(key)) this.fireVersion++;
   }
 }
 

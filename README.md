@@ -1,6 +1,6 @@
 # LLM Voxel World
 
-瀏覽器裡的方塊世界（類 Minecraft），住著幾個由不同 LLM 驅動、對世界充滿好奇的角色。他們會探索、聊天、一起蓋東西，每天寫日記；之後還會合作寫程式。
+瀏覽器裡一座可愛 low-poly 風格的小方塊島（類 Minecraft），住著幾個由不同 LLM 驅動、對世界充滿好奇的角色。他們會探索、聊天、一起蓋東西，每天寫日記；之後還會合作寫程式。
 
 | 角色 | 大腦 | 好奇的方式 |
 |---|---|---|
@@ -33,7 +33,7 @@ npm run dev        # http://localhost:5173 ，按 F3 開關效能面板
 npm run check      # typecheck + lint + test + build
 ```
 
-URL 參數：`?rd=8` 視距、`?pr=1` 解析度上限、`?aa=1` 反鋸齒、`?seed=42` 世界種子。效能設計見 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
+URL 參數：`?pr=1` 解析度上限、`?aa=1` 反鋸齒、`?seed=42` 世界種子；展示鏡頭用 `?orbit=0` 停止旋轉、`?dist=` `?h=` `?angle=` 調整視角。效能設計見 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
 
 目前進度：階段 0 完成，階段 1 的地形與 chunk 管理已完成。下一步在 repo 目錄開 Claude Code：
 

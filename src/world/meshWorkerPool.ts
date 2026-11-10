@@ -4,6 +4,8 @@ import type { MeshRequest } from './mesher.worker';
 interface Job {
   jobId: number;
   padded: Uint8Array;
+  cx: number;
+  cz: number;
   resolve: (d: ChunkMeshData) => void;
   reject: (e: unknown) => void;
 }
@@ -33,9 +35,9 @@ export class MeshWorkerPool {
   }
 
   /** `padded` is transferred (neutered) — do not reuse it after calling. */
-  mesh(padded: Uint8Array): Promise<ChunkMeshData> {
+  mesh(padded: Uint8Array, cx: number, cz: number): Promise<ChunkMeshData> {
     return new Promise((resolve, reject) => {
-      this.queue.push({ jobId: this.nextId++, padded, resolve, reject });
+      this.queue.push({ jobId: this.nextId++, padded, cx, cz, resolve, reject });
       this.pump();
     });
   }
@@ -51,7 +53,7 @@ export class MeshWorkerPool {
       const w = this.idle.pop()!;
       const job = this.queue.shift()!;
       this.busy.set(w, job);
-      const msg: MeshRequest = { jobId: job.jobId, padded: job.padded };
+      const msg: MeshRequest = { jobId: job.jobId, padded: job.padded, cx: job.cx, cz: job.cz };
       w.postMessage(msg, [job.padded.buffer as ArrayBuffer]);
     }
   }

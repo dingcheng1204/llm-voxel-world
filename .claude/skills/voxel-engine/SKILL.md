@@ -48,11 +48,12 @@ Block IDs are `Uint8` (0–255). **IDs are part of the save format — never ren
 | 8  | planks  | yes   | no          |                              |
 | 9  | glass   | yes   | yes         |                              |
 | 10 | bedrock | yes   | no          | unbreakable                  |
+| 11 | rock    | yes   | no          | darker 岩石, mountain tops / boulders |
+| 12 | fire    | no    | yes         | `render: 'none'` — drawn by `scene/fire.ts` (animated instanced flames) |
 
-The registry is `src/world/blocks.ts`: `BLOCKS: Record<number, BlockDef>` with
-`{ id, name, solid, transparent, breakable, textures: { top, side, bottom } }`.
-Texture names map to tiles in a single 16×16-px-per-tile atlas (`public/atlas.png`),
-`NearestFilter`, no mipmaps (or mipmaps with padding if shimmering appears).
+The registry is `src/world/blocks.ts`: `BlockDef { id, name, solid, transparent, breakable, render, colors: { top, side, bottom } }`.
+Blocks are **flat-coloured, no textures** (art direction §10). `render: 'none'` blocks (fire) are skipped by the mesher
+and drawn by their own system. The mesher reads flat lookup tables (`FACE_RGB`, `IS_TRANSPARENT`, `RENDERS_AS_BLOCK`).
 
 ## 4. Meshing
 
@@ -70,13 +71,18 @@ Texture names map to tiles in a single 16×16-px-per-tile atlas (`public/atlas.p
 - After a block edit, rebuild that chunk, plus the neighbor chunk if the block is on a border.
 - Dispose the old geometry (`geometry.dispose()`) on every rebuild — leaks are the #1 FPS killer.
 
-## 5. Terrain generation
+## 5. Terrain generation — a small island
 
-- Deterministic from `worldSeed` (number). Same seed ⇒ same world, everywhere (browser and server).
-- Use `simplex-noise` with a seeded PRNG (`alea`). Height = 2D fractal noise (4 octaves) mapped to `[12, 40]`.
-- Layers: top = grass (sand if within 2 of sea level), next 3 = dirt, rest = stone, `y = 0` = bedrock.
-  Fill air below sea level with water.
-- Trees: deterministic per-column hash with ~1% chance on grass; log trunk 4–6, leaf blob radius 2.
+- The world is **finite and small**: chunks `x, z ∈ [-3, 2]` (96 × 96 blocks, `ISLAND_CHUNKS` in `terrain.ts`).
+  Everything outside is open ocean drawn by the ocean plane. Keep it small — it is a stage for the AI characters.
+- Deterministic from the seed (`simplex-noise` + `alea`). Same seed ⇒ same world, everywhere.
+- Shape: radial island (radius ≈ 34, noise-warped coastline), seabed slopes deeper towards the world edge,
+  two rounded peaks (rock/stone with green foothills, one with a grass cap), a flat sandy plaza in the middle.
+- Columns: top = grass / sand (beach + plaza) / stone / rock, 3 blocks of dirt or sand under it, stone, bedrock at `y = 0`.
+- **No generated water blocks** — the animated ocean plane at `SEA_LEVEL + 0.82` is the sea. Water is still a placeable block.
+- Hand-made structures are world-space block lists (`buildStructures`): campfire (log + fire), wooden crates, a dock.
+- Decorative props (palms, bushes, boulders) come from `terrain.props` and are drawn by `scene/props.ts`
+  (one InstancedMesh per kind). They have **no collision** yet.
 - Generated chunks are NOT saved. Only player/agent **edits** are saved (see §8).
 
 ## 6. Raycasting (block picking)
@@ -113,11 +119,24 @@ Before saying a rendering/engine change works:
 4. If FPS drops, record a performance trace with Chrome DevTools MCP and find the slow function
    before changing code.
 
-## 10. File map
+## 10. Art direction — cute low-poly island
+
+Reference: a bright toy-like low-poly island (sand plaza, palm trees, grey faceted peaks, turquoise sea, white clouds).
+- **Palette**: saturated and light. Grass `#84d64c`, sand `#f6dc96`, stone `#b9c1cc`, rock `#868e9c`, wood `#e3a865`/`#9a6438`,
+  sea `#2fa7ee`, sky `#3f9ef2` → horizon `#bfe7ff`. Avoid dark, muddy or desaturated colours.
+- **Blocks**: flat colours, baked directional shade per face, ±7 % per-block brightness tint (faceted, hand-painted look).
+- **Props**: low-poly primitives (icosahedron/cone/cylinder), `flatShading`, jittered vertices, vertex colours,
+  built once and drawn with `InstancedMesh`. Built with helpers in `scene/lowpoly.ts`.
+- **Lighting**: hemisphere + one directional light, matching the baked block shading (sun from +X/+Y). No real-time shadows.
+- **Sky & sea**: gradient dome, unlit faceted clouds, flat-shaded ocean with vertex-shader waves, horizon-coloured fog.
+- New content must keep this look and stay within the performance budgets (docs/PERFORMANCE.md).
+
+## 11. File map
 
 ```
 src/engine/   renderer, game loop, input, debug overlay
 src/world/    coords, blocks, chunk, terrain, mesher(.worker), raycast, world (edits + chunk manager)
 src/player/   controller, physics, hotbar
+src/scene/    environment (sky, ocean, clouds, lights), props, fire, lowpoly helpers
 src/agents/   agent entity, action executor, pathfinding (uses world + player/physics)
 ```

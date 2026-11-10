@@ -8,7 +8,7 @@ export interface RenderContext {
   dispose(): void;
 }
 
-const SKY = 0x87b5e8;
+const SKY = 0xbfe7ff; // horizon colour: fog fades into the sky dome's horizon
 
 // Stylised palette: colours are authored in sRGB and should hit the screen exactly as written.
 // Disabling colour management keeps vertex colours, fog and sky consistent without per-vertex conversion.
@@ -27,11 +27,10 @@ export function createRenderer(container: HTMLElement, cfg: GameConfig): RenderC
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const viewDist = cfg.renderDistance * 16;
-  // Fog hides chunk pop-in at the edge and lets us keep the far plane tight.
-  scene.fog = new THREE.Fog(SKY, viewDist * 0.55, viewDist * 0.95);
+  // Small island world: fog only softens the far ocean into the horizon.
+  scene.fog = new THREE.Fog(SKY, 140, 420);
 
-  const camera = new THREE.PerspectiveCamera(cfg.fov, 1, 0.1, viewDist + 32);
+  const camera = new THREE.PerspectiveCamera(cfg.fov, 1, 0.1, 1000);
 
   const resize = () => {
     const w = container.clientWidth || window.innerWidth;
