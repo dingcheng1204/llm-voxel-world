@@ -48,16 +48,20 @@ export function overlapsSolid(b: Body, solid: SolidFn): boolean {
   const y1 = Math.floor(b.y + b.height - EPS);
   const z0 = Math.floor(b.z - b.halfWidth + EPS);
   const z1 = Math.floor(b.z + b.halfWidth - EPS);
-  for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (solid(x, y, z)) return true;
+  for (let y = y0; y <= y1; y++)
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (solid(x, y, z)) return true;
   return false;
 }
 
 /** Does a block cell intersect the body's AABB? (used to forbid placing a block inside someone) */
 export function blockIntersectsBody(bx: number, by: number, bz: number, b: Body): boolean {
   return (
-    bx + 1 > b.x - b.halfWidth && bx < b.x + b.halfWidth &&
-    by + 1 > b.y && by < b.y + b.height &&
-    bz + 1 > b.z - b.halfWidth && bz < b.z + b.halfWidth
+    bx + 1 > b.x - b.halfWidth &&
+    bx < b.x + b.halfWidth &&
+    by + 1 > b.y &&
+    by < b.y + b.height &&
+    bz + 1 > b.z - b.halfWidth &&
+    bz < b.z + b.halfWidth
   );
 }
 
@@ -71,7 +75,10 @@ function moveAxis(b: Body, axis: 'x' | 'y' | 'z', delta: number, solid: SolidFn)
     b.y = delta > 0 ? Math.floor(b.y + b.height) - b.height - EPS : Math.floor(b.y) + 1 + EPS;
   } else {
     const p = b[axis];
-    b[axis] = delta > 0 ? Math.floor(p + b.halfWidth) - b.halfWidth - EPS : Math.floor(p - b.halfWidth) + 1 + b.halfWidth + EPS;
+    b[axis] =
+      delta > 0
+        ? Math.floor(p + b.halfWidth) - b.halfWidth - EPS
+        : Math.floor(p - b.halfWidth) + 1 + b.halfWidth + EPS;
   }
   // If snapping still overlaps (e.g. spawned inside a block), undo the move entirely.
   if (overlapsSolid(b, solid)) b[axis] -= delta;

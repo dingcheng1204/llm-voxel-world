@@ -9,6 +9,13 @@ const ZENITH = 0x3f9ef2;
 export class Environment {
   readonly group = new THREE.Group();
   private readonly sky: THREE.Mesh;
+  readonly skyUniforms = {
+    top: { value: new THREE.Color(ZENITH) },
+    horizon: { value: new THREE.Color(HORIZON) },
+  };
+  readonly hemi: THREE.HemisphereLight;
+  readonly sun: THREE.DirectionalLight;
+  readonly seaFloor: THREE.MeshBasicMaterial;
   private readonly oceanUniforms = { uTime: { value: 0 } };
   private readonly clouds: THREE.InstancedMesh;
   private readonly cloudData: { x: number; y: number; z: number; s: number; r: number }[] = [];
@@ -21,10 +28,11 @@ export class Environment {
     this.group.name = 'environment';
 
     // Lights only affect props/ocean/clouds; chunk blocks have the same light baked in.
-    this.group.add(new THREE.HemisphereLight(0xe6f4ff, 0xe0c890, 1.7));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-    sun.position.set(0.6, 1, 0.35);
-    this.group.add(sun);
+    // The day/night cycle (scene/dayNight.ts) animates these.
+    this.hemi = new THREE.HemisphereLight(0xe6f4ff, 0xe0c890, 1.7);
+    this.sun = new THREE.DirectionalLight(0xffffff, 1.5);
+    this.sun.position.set(0.6, 1, 0.35);
+    this.group.add(this.hemi, this.sun);
 
     // Gradient sky dome (follows the camera, never fogged).
     this.sky = new THREE.Mesh(
@@ -32,7 +40,7 @@ export class Environment {
       new THREE.ShaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
-        uniforms: { top: { value: new THREE.Color(ZENITH) }, horizon: { value: new THREE.Color(HORIZON) } },
+        uniforms: this.skyUniforms,
         vertexShader: /* glsl */ `
           varying vec3 vDir;
           void main() {
@@ -54,13 +62,18 @@ export class Environment {
     this.group.add(this.createOcean());
     // Endless sandy sea floor under the ocean, level with the deepest seabed blocks, so the edge
     // of the finite world never shows through the water.
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1100), new THREE.MeshBasicMaterial({ color: 0xf6dc96 }));
+    this.seaFloor = new THREE.MeshBasicMaterial({ color: 0xf6dc96 });
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1100), this.seaFloor);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = 1.98;
     floor.name = 'seafloor';
     this.group.add(floor);
     this.clouds = this.createClouds();
     this.group.add(this.clouds);
+  }
+
+  get cloudMaterial(): THREE.MeshBasicMaterial {
+    return this.clouds.material as THREE.MeshBasicMaterial;
   }
 
   update(time: number, camera: THREE.Camera): void {
@@ -106,7 +119,11 @@ export class Environment {
 
   private createClouds(): THREE.InstancedMesh {
     const puffs: [number, number, number, number][] = [
-      [0, 0, 0, 3.2], [3.4, -0.4, 0.4, 2.5], [-3.2, -0.5, -0.3, 2.3], [1.2, 1.4, -0.2, 2.2], [-1.4, 1.0, 0.6, 1.8],
+      [0, 0, 0, 3.2],
+      [3.4, -0.4, 0.4, 2.5],
+      [-3.2, -0.5, -0.3, 2.3],
+      [1.2, 1.4, -0.2, 2.2],
+      [-1.4, 1.0, 0.6, 1.8],
     ];
     const geo = merge(
       puffs.map(([x, y, z, r], i) => {
@@ -118,11 +135,21 @@ export class Environment {
     );
     const count = 18;
     // Unlit: clouds stay bright white from any angle; per-face variation in the vertex colours keeps the facets.
-    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }), count);
+    const mesh = new THREE.InstancedMesh(
+      geo,
+      new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }),
+      count,
+    );
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + i * 0.7;
       const r = 90 + ((i * 37) % 90);
-      this.cloudData.push({ x: Math.cos(a) * r, y: 62 + ((i * 13) % 14), z: Math.sin(a) * r, s: 0.9 + ((i * 7) % 5) * 0.15, r: a });
+      this.cloudData.push({
+        x: Math.cos(a) * r,
+        y: 62 + ((i * 13) % 14),
+        z: Math.sin(a) * r,
+        s: 0.9 + ((i * 7) % 5) * 0.15,
+        r: a,
+      });
     }
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;

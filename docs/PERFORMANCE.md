@@ -22,7 +22,7 @@
 | FPS | ≥ 60，1% low ≥ 45 | 需在實機量 |
 | 每幀 JS 時間 | < 6 ms | — |
 | Draw calls | < 400 | ~270 |
-| 三角形 | < 500k | ~220k（地形 104k + 海 34k + 裝飾 + 角色） |
+| 三角形 | < 500k | ~260k（地形 143k 含 AO + 海 34k + 裝飾 + 角色） |
 | 首次載入 | < 2 s | 地形生成 ~0.35 s + meshing ~0.8 s ÷ worker 數 |
 | 單一 chunk 重建 | 在 worker 裡完成，主執行緒 0 ms | ✓ |
 
@@ -40,7 +40,9 @@ F3 overlay 會即時顯示上面這些數字。要看的是 **1% low**：平均 
 | Fog + 緊的 far plane | `engine/renderer.ts` | 遮住邊緣 chunk 載入，也少畫遠處 |
 | Meshing 在 Web Worker | `world/meshWorkerPool.ts` | 主執行緒不卡；buffer 用 transfer 不複製 |
 | Greedy meshing（相鄰同材質面合併） | `world/mesher.ts` | 三角形從 67 萬降到 10 萬（−84%） |
-| 方塊亮度差異在 shader 算 | `world/world.ts` | 保留手繪感又不妨礙合併面 |
+| 方塊亮度差異在 shader 算 | `world/blockMaterials.ts` | 保留手繪感又不妨礙合併面 |
+| AO 寫進頂點顏色，合併時一併比對 | `world/mesher.ts` | 角落有柔和陰影；只多 38% 三角形 |
+| 日夜光線用 uniform，營火光在 shader 算 | `world/blockMaterials.ts` | 不加真的燈光，地形沒有額外成本 |
 | Uint8 頂點位置與顏色 | `world/mesher.ts` | 頂點資料是 Float32 的 1/4，上傳 GPU 快 |
 | 共用 2 個材質（不透明 / 水） | `world/world.ts` | 減少 GPU 狀態切換 |
 | 手動設定 bounding sphere | `world/world.ts` | 不跑逐頂點計算；frustum culling 直接可用 |
@@ -55,7 +57,7 @@ F3 overlay 會即時顯示上面這些數字。要看的是 **1% low**：平均 
 ## 之後各階段要加的
 
 - **階段 1**：貼圖 atlas 用 `NearestFilter`；raycast 用 voxel DDA（不要用 `THREE.Raycaster` 打網格）。
-- **階段 2**：per-vertex AO、地形生成也搬進 worker（首次載入更快）。
+- **之後**：地形生成也搬進 worker（首次載入更快、不受 FPS 影響）。
 - **階段 3+**：AI 思考是網路呼叫，絕不阻塞遊戲迴圈；動作排隊執行。
 - 如果 draw call 成為瓶頸：把所有 chunk 放進一個 `BatchedMesh`（multi-draw，一次畫完）。
 - 角色超過 ~10 個時，再考慮角色模型用 instancing。

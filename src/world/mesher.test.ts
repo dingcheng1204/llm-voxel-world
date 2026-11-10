@@ -53,7 +53,12 @@ describe('meshChunk (greedy)', () => {
   });
 
   it('does not merge different blocks', () => {
-    const m = meshChunk(volume([[5, 10, 5, B.stone], [6, 10, 5, B.dirt]]));
+    const m = meshChunk(
+      volume([
+        [5, 10, 5, B.stone],
+        [6, 10, 5, B.dirt],
+      ]),
+    );
     expect(m.opaque.vertexCount).toBe(10 * 4);
   });
 
@@ -63,18 +68,33 @@ describe('meshChunk (greedy)', () => {
   });
 
   it('respects neighbour blocks in the padding', () => {
-    const m = meshChunk(volume([[0, 10, 0, B.stone], [-1, 10, 0, B.stone]]));
+    const m = meshChunk(
+      volume([
+        [0, 10, 0, B.stone],
+        [-1, 10, 0, B.stone],
+      ]),
+    );
     expect(m.opaque.vertexCount).toBe(5 * 4);
   });
 
   it('puts water in its own mesh and merges water faces', () => {
-    const m = meshChunk(volume([[3, 5, 3, B.water], [4, 5, 3, B.water]]));
+    const m = meshChunk(
+      volume([
+        [3, 5, 3, B.water],
+        [4, 5, 3, B.water],
+      ]),
+    );
     expect(m.water.vertexCount).toBe(6 * 4);
     expect(m.opaque.vertexCount).toBe(0);
   });
 
   it('does not mesh fire (drawn by FireSystem) and keeps neighbours visible', () => {
-    const m = meshChunk(volume([[5, 10, 5, B.fire], [6, 10, 5, B.stone]]));
+    const m = meshChunk(
+      volume([
+        [5, 10, 5, B.fire],
+        [6, 10, 5, B.stone],
+      ]),
+    );
     expect(m.opaque.vertexCount).toBe(6 * 4);
   });
 
@@ -91,5 +111,34 @@ describe('meshChunk (greedy)', () => {
 
   it('uses 16-bit indices for small meshes', () => {
     expect(meshChunk(volume([[1, 1, 1, B.stone]])).opaque.indices).toBeInstanceOf(Uint16Array);
+  });
+});
+
+describe('ambient occlusion', () => {
+  it('darkens floor corners next to a block and leaves open floor fully lit', () => {
+    const blocks: [number, number, number, number][] = [];
+    for (let z = 0; z < 5; z++) for (let x = 0; x < 5; x++) blocks.push([x, 5, z, B.stone]);
+    blocks.push([2, 6, 2, B.stone]); // a block standing on the floor
+    const m = meshChunk(volume(blocks));
+    const P = m.opaque.positions;
+    const C = m.opaque.colors;
+    let touchingWall = Infinity;
+    let open = 0;
+    for (let v = 0; v < m.opaque.vertexCount; v++) {
+      if (P[v * 3 + 1] !== 6) continue; // vertices on the floor top plane
+      const x = P[v * 3]!;
+      const z = P[v * 3 + 2]!;
+      const r = C[v * 3]!;
+      if ((x === 2 || x === 3) && (z === 2 || z === 3)) touchingWall = Math.min(touchingWall, r);
+      if (x === 0 && z === 0) open = Math.max(open, r);
+    }
+    expect(touchingWall).toBeLessThan(open);
+  });
+
+  it('a flat open floor still merges into one quad', () => {
+    const blocks: [number, number, number, number][] = [];
+    for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) blocks.push([x, 5, z, B.sand]);
+    const m = meshChunk(volume(blocks));
+    expect(m.opaque.vertexCount).toBe(6 * 4);
   });
 });

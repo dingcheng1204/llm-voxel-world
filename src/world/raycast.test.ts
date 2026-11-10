@@ -16,13 +16,20 @@ describe('raycastVoxel', () => {
   });
 
   it('works with negative coordinates', () => {
-    const h = raycastVoxel(solidAt([[-3, -1, -2]]), hit, { x: -2.5, y: 1.5, z: -1.5 }, { x: -0.5, y: -2, z: -0.5 });
+    const h = raycastVoxel(
+      solidAt([[-3, -1, -2]]),
+      hit,
+      { x: -2.5, y: 1.5, z: -1.5 },
+      { x: -0.5, y: -2, z: -0.5 },
+    );
     expect(h?.block).toEqual([-3, -1, -2]);
     expect(h?.normal).toEqual([0, 1, 0]);
   });
 
   it('returns null beyond max distance', () => {
-    expect(raycastVoxel(solidAt([[10, 0, 0]]), hit, { x: 0.5, y: 0.5, z: 0.5 }, { x: 1, y: 0, z: 0 }, 5)).toBeNull();
+    expect(
+      raycastVoxel(solidAt([[10, 0, 0]]), hit, { x: 0.5, y: 0.5, z: 0.5 }, { x: 1, y: 0, z: 0 }, 5),
+    ).toBeNull();
   });
 
   it('places on the hit face: block + normal is the free cell in front', () => {

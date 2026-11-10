@@ -26,12 +26,12 @@
 - [ ] ✅ 驗收：走 2 分鐘、挖放 50 次，FPS ≥ 60，不會卡進方塊（功能已自動測試；FPS 待實機確認）
 
 ## 階段 2 — 世界打磨
-- [ ] 編輯存 localStorage，重新整理後還在
-- [ ] Supabase：建立專案表（BLUEPRINT §5 的 SQL 做成 migration）
-- [ ] 編輯同步到 `world_edits`
+- [x] 編輯存 localStorage，重新整理後還在
+- [x] Supabase：建立專案表（BLUEPRINT §5 的 SQL 做成 migration，RLS 全開、只開放公開讀取）
+- [x] 編輯同步到 `world_edits`（經由 Edge Function `world-edits`；每 2 秒上傳、每 10 秒拉別人的修改；離線會排隊）
 - [x] Web Worker greedy meshing（三角形 −84%）
-- [ ] 環境光遮蔽（per-vertex AO）
-- [ ] 日夜循環（1 遊戲日 = 20 分鐘），天空顏色、太陽光
+- [x] 環境光遮蔽（per-vertex AO，與 greedy meshing 相容；三角形 104k → 143k）
+- [x] 日夜循環（1 遊戲日 = 20 分鐘，所有人共用同一個時鐘）：天空、霧、光線、星星、日月、營火夜間照亮四周
 - [x] 水網格（湖、井）；海用動畫平面
 - [x] 島嶼擴大到 192×288，加入雪山、火山、森林、花草原、湖與更多素材
 - [ ] ✅ 驗收：整座島 ≥ 60 FPS；draw calls < 400；三角形 < 500k

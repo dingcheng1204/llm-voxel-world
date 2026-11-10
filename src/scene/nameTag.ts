@@ -25,7 +25,9 @@ export function createNameTag(name: string, subtitle: string, color: string): TH
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 1;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }),
+  );
   sprite.scale.set(1.6, 0.5, 1);
   sprite.renderOrder = 2;
   return sprite;

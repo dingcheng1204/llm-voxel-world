@@ -79,7 +79,8 @@ export class PlayerController {
 
     // Wanted horizontal direction from WASD relative to where we look.
     const fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-    const side = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
+    const side =
+      (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
     let wx = -Math.sin(this.yaw) * fwd + Math.cos(this.yaw) * side;
     let wz = -Math.cos(this.yaw) * fwd - Math.sin(this.yaw) * side;
     const wl = Math.hypot(wx, wz);
@@ -179,7 +180,13 @@ export class PlayerController {
   private updateTarget(): void {
     this.eye.set(this.body.x, this.body.y + PLAYER.eye, this.body.z);
     this.camera.getWorldDirection(this.dir);
-    this.target = raycastVoxel((x, y, z) => this.world.getBlock(x, y, z), hittable, this.eye, this.dir, REACH);
+    this.target = raycastVoxel(
+      (x, y, z) => this.world.getBlock(x, y, z),
+      hittable,
+      this.eye,
+      this.dir,
+      REACH,
+    );
     if (this.target) {
       const [x, y, z] = this.target.block;
       this.selection.position.set(x + 0.5, y + 0.5, z + 0.5);

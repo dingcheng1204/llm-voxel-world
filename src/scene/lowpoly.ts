@@ -41,7 +41,10 @@ export function jitter(geo: THREE.BufferGeometry, amount: number, seed: number):
     const x = pos.getX(i);
     const y = pos.getY(i);
     const z = pos.getZ(i);
-    const key = Math.round(x * 1000) * 73856093 ^ Math.round(y * 1000) * 19349663 ^ Math.round(z * 1000) * 83492791;
+    const key =
+      (Math.round(x * 1000) * 73856093) ^
+      (Math.round(y * 1000) * 19349663) ^
+      (Math.round(z * 1000) * 83492791);
     const s = 1 + (pseudo(key + seed) - 0.5) * 2 * amount;
     pos.setXYZ(i, x * s, y * s, z * s);
   }

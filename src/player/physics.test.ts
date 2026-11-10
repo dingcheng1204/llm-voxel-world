@@ -8,7 +8,12 @@ const world = (extra: [number, number, number][] = []) => {
 };
 const dt = 1 / 60;
 
-function run(b: ReturnType<typeof createBody>, solid: ReturnType<typeof world>, ticks: number, each?: () => void) {
+function run(
+  b: ReturnType<typeof createBody>,
+  solid: ReturnType<typeof world>,
+  ticks: number,
+  each?: () => void,
+) {
   for (let i = 0; i < ticks; i++) {
     each?.();
     b.vy = Math.max(b.vy - PLAYER.gravity * dt, -PLAYER.maxFall);

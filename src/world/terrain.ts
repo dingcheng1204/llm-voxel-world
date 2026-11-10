@@ -29,8 +29,7 @@ export interface Column {
 }
 
 export type PropKind =
-  | 'palm' | 'bush' | 'boulder' | 'mushroom'
-  | 'flower_red' | 'flower_yellow' | 'flower_pink' | 'flower_white';
+  'palm' | 'bush' | 'boulder' | 'mushroom' | 'flower_red' | 'flower_yellow' | 'flower_pink' | 'flower_white';
 
 export interface Prop {
   kind: PropKind;
@@ -197,10 +196,13 @@ export class TerrainGenerator {
         const wz = cz * CHUNK_Z + lz;
         const { h, top, waterTop } = this.column(wx, wz);
         const under =
-          top === B.grass || top === B.flower_grass ? B.dirt
-          : top === B.sand || top === B.gravel ? top
-          : top === B.clay || top === B.lava ? B.clay
-          : B.stone;
+          top === B.grass || top === B.flower_grass
+            ? B.dirt
+            : top === B.sand || top === B.gravel
+              ? top
+              : top === B.clay || top === B.lava
+                ? B.clay
+                : B.stone;
         for (let y = 0; y <= h; y++) {
           const id = y === 0 ? B.bedrock : y === h ? top : y >= h - 3 ? under : B.stone;
           b[localIndex(lx, y, lz)] = id;
@@ -272,7 +274,8 @@ export class TerrainGenerator {
       const z = Math.round(rz + Math.sin(a) * 6);
       const h = this.column(x, z).h;
       const height = 1 + Math.floor(hash2(i, 9, s) * 4);
-      for (let k = 1; k <= height; k++) this.put(x, h + k, z, hash2(i, k, s) < 0.25 ? B.brick : B.mossy_stone);
+      for (let k = 1; k <= height; k++)
+        this.put(x, h + k, z, hash2(i, k, s) < 0.25 ? B.brick : B.mossy_stone);
     }
 
     // Crystal clusters on the big mountain's flanks.
@@ -330,7 +333,8 @@ export class TerrainGenerator {
   }
 
   private nearStructure(x: number, z: number, r: number): boolean {
-    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (this.occupied(x + dx, z + dz)) return true;
+    for (let dz = -r; dz <= r; dz++)
+      for (let dx = -r; dx <= r; dx++) if (this.occupied(x + dx, z + dz)) return true;
     return false;
   }
 
@@ -346,7 +350,14 @@ export class TerrainGenerator {
     const add = (kind: PropKind, x: number, z: number, scale: number) => {
       const c = this.column(x, z);
       taken.add(`${x},${z}`);
-      this.props.push({ kind, x: x + 0.5, y: c.h + 1, z: z + 0.5, rotation: hash2(z, x, s + 3) * Math.PI * 2, scale });
+      this.props.push({
+        kind,
+        x: x + 0.5,
+        y: c.h + 1,
+        z: z + 0.5,
+        rotation: hash2(z, x, s + 3) * Math.PI * 2,
+        scale,
+      });
     };
     const flowers: PropKind[] = ['flower_red', 'flower_yellow', 'flower_pink', 'flower_white'];
 
@@ -389,7 +400,14 @@ export class TerrainGenerator {
     const g = this.column(px, pz).h + 1;
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * Math.PI * 2;
-      this.props.push({ kind: 'boulder', x: px + 0.5 + Math.cos(a) * 0.95, y: g, z: pz + 0.5 + Math.sin(a) * 0.95, rotation: a, scale: 0.3 });
+      this.props.push({
+        kind: 'boulder',
+        x: px + 0.5 + Math.cos(a) * 0.95,
+        y: g,
+        z: pz + 0.5 + Math.sin(a) * 0.95,
+        rotation: a,
+        scale: 0.3,
+      });
     }
   }
 

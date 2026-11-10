@@ -134,10 +134,17 @@ and drawn by their own system. The mesher reads flat lookup tables (`FACE_RGB`, 
 
 ## 8. Persistence
 
-- An edit is `{ x, y, z, id, by, t }` (`by` = `"player"` or an agent id, `t` = epoch ms).
-- In memory: `edits: Map<chunkKey, Map<localIndex, id>>`, applied on top of generated terrain.
-- Phase 1: save to `localStorage` key `voxel:world:<seed>` (JSON of edits).
-- Phase 2+: Supabase table `world_edits` (see docs/BLUEPRINT.md). Last write wins per block.
+- An edit is `{ x, y, z, id, by, t }` (`by` = `"player"` or an agent id, `t` = epoch ms). Last write wins per block.
+- `World.setBlock(..., by)` = a *local* action → logged in `world.edits` and sent to `world.onEdit`.
+  `World.applyEdit(...)` = a *saved or remote* edit → applied without re-logging; queued until the chunk is generated.
+- `src/world/persistence.ts` (`WorldSave`):
+  - localStorage `voxel:world:<seed>` (newest edit per block) + `voxel:pending:<seed>` (not yet uploaded).
+  - Cloud (deployed site only; local dev uses `?cloud=1` to opt in, `?cloud=0` to opt out): Supabase project
+    `llm-voxel-world`, table `world_edits`, through the edge function `supabase/functions/world-edits`
+    (GET `?seed&since`, POST batches ≤ 500; validates bounds/ids; service role stays server-side).
+    Push every 2 s, pull others' edits every 10 s. Offline → edits stay queued. 4xx → batch dropped.
+  - `?reset=1` clears this browser's local save only.
+- Agents (later) write through the same path — server-side code should call the same edge function or table.
 
 ## 9. Debugging checklist
 
@@ -158,6 +165,10 @@ Reference: a bright toy-like low-poly island (sand plaza, palm trees, grey facet
 - **Props**: low-poly primitives (icosahedron/cone/cylinder), `flatShading`, jittered vertices, vertex colours,
   built once and drawn with `InstancedMesh`. Built with helpers in `scene/lowpoly.ts`.
 - **Lighting**: hemisphere + one directional light, matching the baked block shading (sun from +X/+Y). No real-time shadows.
+  Per-vertex AO (soft curve 0.6/0.75/0.88/1.0) baked into chunk vertex colours; greedy merging keys on block id + AO pattern.
+- **Day/night** (`scene/dayNight.ts`): shared `WorldClock` from real time, 1 game day = 20 min (`?time=0.5` freezes it).
+  Keyframed sky/fog/light; chunk shaders read `blockLighting` uniforms (`world/blockMaterials.ts`): `uLight`, `uNight`,
+  and up to 8 fire positions for a warm per-pixel campfire glow. Nights stay a soft, readable navy — never pitch black.
 - **Sky & sea**: gradient dome, unlit faceted clouds, flat-shaded ocean with vertex-shader waves, horizon-coloured fog.
 - New content must keep this look and stay within the performance budgets (docs/PERFORMANCE.md).
 

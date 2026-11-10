@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { CHUNK_VOLUME, chunkKey, localIndex, paddedIndex, PAD_VOLUME, parseChunkKey, worldToChunk, worldToLocal } from './coords';
+import {
+  CHUNK_VOLUME,
+  chunkKey,
+  localIndex,
+  paddedIndex,
+  PAD_VOLUME,
+  parseChunkKey,
+  worldToChunk,
+  worldToLocal,
+} from './coords';
 
 describe('coords', () => {
   it('maps negative world coords to the correct chunk and local coord', () => {

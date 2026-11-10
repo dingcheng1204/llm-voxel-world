@@ -173,7 +173,11 @@ create table usage (
 );
 ```
 
-RLS：前端用 publishable key 只能 `select` diaries / messages / world_edits；寫入一律透過 Vercel Function 使用 service role。
+RLS：前端用公開金鑰只能 `select` agents / diaries / messages / world_edits；events、usage 完全不開放。寫入一律透過伺服器端（Edge Function 或 Vercel Function）使用 service role。
+
+Supabase 專案：`llm-voxel-world`（ap-northeast-1 東京）。SQL 在 `supabase/migrations/`，Edge Function 在 `supabase/functions/`。
+
+部署的網站是**一座大家共用的島**：每位訪客和之後的 AI 角色都在同一個世界挖和放方塊（最後寫入的為準）。本機開發預設不連雲端。
 
 ---
 
@@ -184,7 +188,7 @@ RLS：前端用 publishable key 只能 `select` diaries / messages / world_edits
 | `/api/agent/think` | POST | `{agentId, perception}` → `{thought, say, actions}`；檢查預算、記錄 usage 和 events |
 | `/api/agent/event` | POST | 批次寫入事件（動作結果、發現、命名地點） |
 | `/api/chat` | POST | 寫入一則 `say` 或玩家訊息 |
-| `/api/world/edits` | GET/POST | 讀寫方塊編輯 |
+| Supabase Edge Function `world-edits` | GET/POST | 讀寫方塊編輯（已上線；service role 只在伺服器端） |
 | `/api/cron/diary` | GET (cron) | 為每個角色產生當日日記；`vercel.json` 設 `30 15 * * *`（UTC = 台北 23:30） |
 
 環境變數：見 `.env.example`。

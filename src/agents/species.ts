@@ -35,7 +35,9 @@ function eyes(r: number, spread = 0.42, height = 0.12): THREE.BufferGeometry[] {
   const out: THREE.BufferGeometry[] = [];
   for (const side of [-1, 1]) {
     out.push(at(blob(r * 0.17, 1, 1.15, 0.7, 0x1d1d2b, 3, 0), side * r * spread, r * height, r * 0.86));
-    out.push(at(blob(r * 0.06, 1, 1, 1, 0xffffff, 4, 0), side * r * spread + 0.03, r * height + r * 0.07, r * 0.98));
+    out.push(
+      at(blob(r * 0.06, 1, 1, 1, 0xffffff, 4, 0), side * r * spread + 0.03, r * height + r * 0.07, r * 0.98),
+    );
   }
   return out;
 }
@@ -65,7 +67,12 @@ function quadruped(spec: QuadSpec): CharacterModel {
 
   // Legs pivot at the hip so they can swing.
   const legs: THREE.Object3D[] = [];
-  for (const [x, z] of [[-0.2, 0.3], [0.2, 0.3], [-0.2, -0.32], [0.2, -0.32]] as const) {
+  for (const [x, z] of [
+    [-0.2, 0.3],
+    [0.2, 0.3],
+    [-0.2, -0.32],
+    [0.2, -0.32],
+  ] as const) {
     const pivot = new THREE.Group();
     pivot.position.set(x, 0.42, z);
     const leg = new THREE.CylinderGeometry(0.085, 0.075, 0.38, 5);
@@ -104,7 +111,9 @@ function quadruped(spec: QuadSpec): CharacterModel {
   const tailParts: THREE.BufferGeometry[] = [];
   if (spec.tail === 'thin') {
     for (let i = 0; i < 4; i++) {
-      tailParts.push(at(blob(0.07 - i * 0.008, 1, 1, 1.6, spec.body, 10 + i, 0), 0, i * 0.11, -0.08 - i * 0.07));
+      tailParts.push(
+        at(blob(0.07 - i * 0.008, 1, 1, 1.6, spec.body, 10 + i, 0), 0, i * 0.11, -0.08 - i * 0.07),
+      );
     }
   } else {
     const len = spec.tail === 'fluffy' ? 0.62 : 0.5;
@@ -122,7 +131,9 @@ function quadruped(spec: QuadSpec): CharacterModel {
       const moving = speed > 0.05;
       const phase = time * (moving ? 9 : 0);
       // Diagonal pairs move together (front-left with back-right), like a real trot.
-      legs.forEach((l, i) => (l.rotation.x = moving ? Math.sin(phase + (i === 0 || i === 3 ? 0 : Math.PI)) * 0.6 : 0));
+      legs.forEach(
+        (l, i) => (l.rotation.x = moving ? Math.sin(phase + (i === 0 || i === 3 ? 0 : Math.PI)) * 0.6 : 0),
+      );
       body.position.y = moving ? Math.abs(Math.sin(phase)) * 0.05 : Math.sin(time * 2) * 0.012;
       head.position.y = 0.95 + body.position.y;
       head.rotation.y = moving ? 0 : Math.sin(time * 0.7) * 0.35;
@@ -189,11 +200,43 @@ function snake(): CharacterModel {
 export function createModel(species: Species): CharacterModel {
   switch (species) {
     case 'cat':
-      return quadruped({ body: 0xffb562, belly: 0xfff1dc, legs: 0xfff1dc, earInner: 0xff9fb4, earHeight: 0.24, earWidth: 0.14, muzzle: 0xfff1dc, tail: 'thin', snout: 0 });
+      return quadruped({
+        body: 0xffb562,
+        belly: 0xfff1dc,
+        legs: 0xfff1dc,
+        earInner: 0xff9fb4,
+        earHeight: 0.24,
+        earWidth: 0.14,
+        muzzle: 0xfff1dc,
+        tail: 'thin',
+        snout: 0,
+      });
     case 'fox':
-      return quadruped({ body: 0xff7f3a, belly: 0xfff4e6, legs: 0x4a3328, earInner: 0x3a2a22, earHeight: 0.34, earWidth: 0.15, muzzle: 0xfff4e6, tail: 'fluffy', tailTip: 0xffffff, snout: 0.45 });
+      return quadruped({
+        body: 0xff7f3a,
+        belly: 0xfff4e6,
+        legs: 0x4a3328,
+        earInner: 0x3a2a22,
+        earHeight: 0.34,
+        earWidth: 0.15,
+        muzzle: 0xfff4e6,
+        tail: 'fluffy',
+        tailTip: 0xffffff,
+        snout: 0.45,
+      });
     case 'wolf':
-      return quadruped({ body: 0x9aa7bd, belly: 0xe8edf5, legs: 0x7d8aa1, earInner: 0x5d6880, earHeight: 0.3, earWidth: 0.15, muzzle: 0xe8edf5, tail: 'bushy', tailTip: 0xe8edf5, snout: 0.35 });
+      return quadruped({
+        body: 0x9aa7bd,
+        belly: 0xe8edf5,
+        legs: 0x7d8aa1,
+        earInner: 0x5d6880,
+        earHeight: 0.3,
+        earWidth: 0.15,
+        muzzle: 0xe8edf5,
+        tail: 'bushy',
+        tailTip: 0xe8edf5,
+        snout: 0.35,
+      });
     case 'snake':
       return snake();
   }

@@ -1,8 +1,18 @@
 import * as THREE from 'three';
 import { Chunk } from './chunk';
-import { CHUNK_X, CHUNK_Y, CHUNK_Z, PAD_VOLUME, chunkKey, localIndex, paddedIndex, type ChunkKey } from './coords';
+import {
+  CHUNK_X,
+  CHUNK_Y,
+  CHUNK_Z,
+  PAD_VOLUME,
+  chunkKey,
+  localIndex,
+  paddedIndex,
+  type ChunkKey,
+} from './coords';
 import type { ChunkMeshData, MeshPart } from './mesher';
 import { MeshWorkerPool } from './meshWorkerPool';
+import { opaqueMaterial, waterMaterial } from './blockMaterials';
 import { B, IS_SOLID } from './blocks';
 import { ISLAND_CHUNKS, TerrainGenerator } from './terrain';
 
@@ -30,32 +40,6 @@ export interface BlockPos {
   y: number;
   z: number;
 }
-
-// One material per pass, shared by every chunk → minimal state changes per draw call.
-const opaqueMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
-// Per-block brightness variation (±7 %) computed per block cell on the GPU, so greedy-merged
-// quads still look like individually hand-painted blocks.
-opaqueMaterial.onBeforeCompile = (shader) => {
-  shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vCellPos;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCellPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-  shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vCellPos;')
-    .replace(
-      '#include <color_fragment>',
-      `#include <color_fragment>
-      vec3 faceN = normalize(cross(dFdx(vCellPos), dFdy(vCellPos))); // points towards the viewer
-      vec3 cell = floor(vCellPos - faceN * 0.5);
-      float cellHash = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-      diffuseColor.rgb *= 0.93 + 0.14 * cellHash;`,
-    );
-};
-const waterMaterial = new THREE.MeshBasicMaterial({
-  vertexColors: true,
-  transparent: true,
-  opacity: 0.72,
-  depthWrite: false,
-});
 
 const HALF_X = CHUNK_X / 2;
 const HALF_Y = CHUNK_Y / 2;
@@ -126,6 +110,12 @@ export class World {
       const key = chunkKey(x, z);
       if (!this.chunks.has(key)) {
         const chunk = this.terrain.generate(x, z);
+        // Saved / remote edits for this chunk are applied before it is ever meshed.
+        const saved = this.pendingEdits.get(key);
+        if (saved) {
+          for (const [ex, ey, ez, id] of saved) chunk.set(ex - x * CHUNK_X, ey, ez - z * CHUNK_Z, id);
+          this.pendingEdits.delete(key);
+        }
         this.chunks.set(key, { chunk, version: 1, meshedVersion: 0, meshing: false });
         this.indexFires(key, chunk);
       }
@@ -192,22 +182,61 @@ export class World {
   /** Edits made this session ({x,y,z,id,by,t}); persisted in ROADMAP phase 2. */
   readonly edits: { x: number; y: number; z: number; id: number; by: string; t: number }[] = [];
 
+  /** Called for every local edit (player or agent) — the save system listens here. */
+  onEdit: (e: { x: number; y: number; z: number; id: number; by: string; t: number }) => void = () => {};
+  /** Saved/remote edits for chunks that are not generated yet; applied right after generation. */
+  private readonly pendingEdits = new Map<ChunkKey, [number, number, number, number][]>();
+
   /**
-   * Change one block (player or agent). Marks the chunk — and a neighbour when the block sits on a
-   * chunk border — for re-meshing; the old mesh stays visible until the new one arrives (no flicker).
-   * Returns false if the position is outside the world.
+   * Change one block because a player or agent did something. Logged, saved and synced.
+   * Returns false if the position is outside the loaded world.
    */
   setBlock(x: number, y: number, z: number, id: number, by = 'player'): boolean {
-    if (y < 0 || y >= CHUNK_Y) return false;
+    const changed = this.writeBlock(x, y, z, id);
+    if (changed === null) return false;
+    if (changed) {
+      const e = { x, y, z, id, by, t: Date.now() };
+      this.edits.push(e);
+      this.onEdit(e);
+    }
+    return true;
+  }
+
+  /**
+   * Apply an edit that comes from a save file or from another client. Not logged or re-synced.
+   * Works before the chunk exists (queued until it is generated).
+   */
+  applyEdit(x: number, y: number, z: number, id: number): void {
+    if (y < 0 || y >= CHUNK_Y) return;
+    const cx = Math.floor(x / CHUNK_X);
+    const cz = Math.floor(z / CHUNK_Z);
+    if (!this.inBounds(cx, cz)) return;
+    const key = chunkKey(cx, cz);
+    if (this.chunks.has(key)) {
+      this.writeBlock(x, y, z, id);
+    } else {
+      const list = this.pendingEdits.get(key) ?? [];
+      list.push([x, y, z, id]);
+      this.pendingEdits.set(key, list);
+    }
+  }
+
+  /**
+   * Low-level block write. Marks the chunk — and neighbours when the block sits on a border — for a
+   * priority re-mesh; the old mesh stays visible until the new one arrives (no flicker).
+   * Returns null if outside the loaded world, false if nothing changed, true if changed.
+   */
+  private writeBlock(x: number, y: number, z: number, id: number): boolean | null {
+    if (y < 0 || y >= CHUNK_Y) return null;
     const cx = Math.floor(x / CHUNK_X);
     const cz = Math.floor(z / CHUNK_Z);
     const key = chunkKey(cx, cz);
     const e = this.chunks.get(key);
-    if (!e) return false;
+    if (!e) return null;
     const lx = x - cx * CHUNK_X;
     const lz = z - cz * CHUNK_Z;
     const old = e.chunk.get(lx, y, lz);
-    if (old === id) return true;
+    if (old === id) return false;
     e.chunk.set(lx, y, lz, id);
     e.version++;
     this.dirty.add(key);
@@ -223,8 +252,11 @@ export class World {
     if (lx === CHUNK_X - 1) touch(cx + 1, cz);
     if (lz === 0) touch(cx, cz - 1);
     if (lz === CHUNK_Z - 1) touch(cx, cz + 1);
+    // AO reads diagonal neighbours, so corner edits also dirty the diagonal chunk.
+    if ((lx === 0 || lx === CHUNK_X - 1) && (lz === 0 || lz === CHUNK_Z - 1)) {
+      touch(lx === 0 ? cx - 1 : cx + 1, lz === 0 ? cz - 1 : cz + 1);
+    }
     if (old === B.fire || id === B.fire) this.indexFires(key, e.chunk);
-    this.edits.push({ x, y, z, id, by, t: Date.now() });
     return true;
   }
 
@@ -304,7 +336,11 @@ export class World {
     const s = nb(cx, cz + 1);
     const w = nb(cx - 1, cz);
     const ea = nb(cx + 1, cz);
-    if (!self || !n || !s || !w || !ea) return null;
+    const nw = nb(cx - 1, cz - 1);
+    const ne = nb(cx + 1, cz - 1);
+    const sw = nb(cx - 1, cz + 1);
+    const se = nb(cx + 1, cz + 1);
+    if (!self || !n || !s || !w || !ea || !nw || !ne || !sw || !se) return null;
     const out = new Uint8Array(PAD_VOLUME);
     const src = self.blocks;
     for (let y = 0; y < CHUNK_Y; y++) {
@@ -319,6 +355,11 @@ export class World {
         out[paddedIndex(x, y, -1)] = n.blocks[localIndex(x, y, CHUNK_Z - 1)] ?? 0;
         out[paddedIndex(x, y, CHUNK_Z)] = s.blocks[localIndex(x, y, 0)] ?? 0;
       }
+      // Corner columns (needed for ambient occlusion at chunk corners).
+      out[paddedIndex(-1, y, -1)] = nw.blocks[localIndex(CHUNK_X - 1, y, CHUNK_Z - 1)] ?? 0;
+      out[paddedIndex(CHUNK_X, y, -1)] = ne.blocks[localIndex(0, y, CHUNK_Z - 1)] ?? 0;
+      out[paddedIndex(-1, y, CHUNK_Z)] = sw.blocks[localIndex(CHUNK_X - 1, y, 0)] ?? 0;
+      out[paddedIndex(CHUNK_X, y, CHUNK_Z)] = se.blocks[localIndex(0, y, 0)] ?? 0;
     }
     return out;
   }
@@ -339,7 +380,8 @@ export class World {
 /** Chunk coords within `radius` (Chebyshev), nearest first. */
 export function spiral(cx: number, cz: number, radius: number): [number, number][] {
   const out: [number, number][] = [];
-  for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) out.push([cx + dx, cz + dz]);
+  for (let dz = -radius; dz <= radius; dz++)
+    for (let dx = -radius; dx <= radius; dx++) out.push([cx + dx, cz + dz]);
   out.sort((a, b) => (a[0] - cx) ** 2 + (a[1] - cz) ** 2 - ((b[0] - cx) ** 2 + (b[1] - cz) ** 2));
   return out;
 }
