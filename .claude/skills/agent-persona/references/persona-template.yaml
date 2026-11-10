@@ -1,0 +1,22 @@
+# Copy to agents/personas/<id>.yaml and fill in.
+id: example
+display_name: Example
+brain:
+  provider: anthropic          # anthropic | google | openai | xai | meta | alibaba
+  model: anthropic/<model-id>   # AI Gateway model id — verify the current id before use
+  think_model: null            # optional cheaper model for routine ticks
+appearance:
+  color: "#888888"
+  hat: none                    # none | cap | straw | antenna
+core_trait: curiosity
+personality: >
+  Describe in 2–4 sentences HOW this character is curious. What do they notice first?
+  What kind of question do they ask?
+speech_style: >
+  Tone, sentence length, verbal habits. Example phrase or two.
+interests:
+  - thing 1
+  - thing 2
+  - thing 3
+diary_language: zh-TW
+starting_position: [0, 0, 0]   # y is resolved to ground height at spawn
