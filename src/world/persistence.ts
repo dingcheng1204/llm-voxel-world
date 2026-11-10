@@ -34,6 +34,7 @@ export interface SaveStatus {
 const PUSH_INTERVAL = 2000;
 const PULL_INTERVAL = 10000;
 const MAX_BATCH = 500;
+const SINCE_OVERLAP_MS = 5000;
 
 export class WorldSave {
   private readonly blocks = new Map<string, Saved>();
@@ -152,7 +153,9 @@ export class WorldSave {
       const data = (await res.json()) as { edits: Saved[]; now: string };
       let changed = false;
       for (const e of data.edits) changed = this.remember(e, true) || changed;
-      this.since = data.now;
+      // Overlap the next pull by a few seconds: an upload that was in flight while this pull ran can
+      // carry a timestamp slightly before `now`. Duplicates are harmless (newest-wins by timestamp).
+      this.since = new Date(Date.parse(data.now) - SINCE_OVERLAP_MS).toISOString();
       this.status.cloud = 'ok';
       this.status.lastSync = Date.now();
       if (changed) this.scheduleLocalSave();
