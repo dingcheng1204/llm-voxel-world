@@ -42,7 +42,7 @@ Block IDs are `Uint8` (0–255). **IDs are part of the save format — never ren
 | 2  | dirt    | yes   | no          |                              |
 | 3  | stone   | yes   | no          |                              |
 | 4  | log     | yes   | no          | top/side differ              |
-| 5  | leaves  | yes   | yes         | alpha-tested, faces not culled against each other |
+| 5  | leaves  | yes   | yes         | leaf/leaf faces culled while leaves are solid colour; revisit with alpha atlas |
 | 6  | sand    | yes   | no          |                              |
 | 7  | water   | no    | yes         | separate transparent mesh, no collision |
 | 8  | planks  | yes   | no          |                              |
@@ -60,8 +60,13 @@ Texture names map to tiles in a single 16×16-px-per-tile atlas (`public/atlas.p
   (transparent and a different block id). Neighbor lookups across chunk borders must read
   the adjacent chunk; if it is not loaded, treat it as air on the border (rebuild when it loads).
 - Phase 2: **greedy meshing** per face direction, in a Web Worker (`src/world/mesher.worker.ts`).
-- One `BufferGeometry` per chunk for opaque, one for transparent (water/glass/leaves).
-  Attributes: `position`, `normal`, `uv`, and a per-vertex `ao` float (ambient occlusion, 0–3).
+- One `BufferGeometry` per chunk for opaque, one for water. Implemented in `src/world/mesher.ts`.
+  Current attributes (compact on purpose): `position` as **Uint8** local coords, `color` as **Uint8 normalised**
+  with directional shading baked in (top 1.0, ±X 0.8, ±Z 0.65, bottom 0.5); Uint16 indices unless > 65535 verts.
+  `MeshBasicMaterial` (no lighting cost). Phase 1–2 add `uv` (atlas) and per-vertex AO.
+- Meshing runs in `MeshWorkerPool` workers; the padded volume and the result buffers are **transferred**, not copied.
+- Set `geometry.boundingSphere/boundingBox` from the known chunk bounds; never call `computeBoundingSphere`.
+- Chunk meshes use `matrixAutoUpdate = false` and two shared materials.
 - After a block edit, rebuild that chunk, plus the neighbor chunk if the block is on a border.
 - Dispose the old geometry (`geometry.dispose()`) on every rebuild — leaks are the #1 FPS killer.
 

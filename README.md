@@ -12,6 +12,7 @@
 ## 文件
 - [docs/BLUEPRINT.md](docs/BLUEPRINT.md) — 架構、資料模型、API、AI 角色設計、風險
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 分階段開發清單（0 → 7）
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — 效能預算與做法
 - [CLAUDE.md](CLAUDE.md) — 給 Claude Code 的專案規則
 
 ## 給 Claude Code 用的 Skills
@@ -24,7 +25,16 @@ Chrome DevTools（除錯／效能）、Playwright（E2E）、Context7（最新�
 ## 技術棧
 Vite · TypeScript · Three.js · Vercel Functions · AI SDK / AI Gateway · Supabase
 
-## 開始
-目前在 **階段 0**。在 repo 目錄開 Claude Code，輸入：
+## 開發
 
-> 讀 docs/ROADMAP.md，開始做階段 0。
+```bash
+npm install
+npm run dev        # http://localhost:5173 ，按 F3 開關效能面板
+npm run check      # typecheck + lint + test + build
+```
+
+URL 參數：`?rd=8` 視距、`?pr=1` 解析度上限、`?aa=1` 反鋸齒、`?seed=42` 世界種子。效能設計見 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
+
+目前進度：階段 0 完成，階段 1 的地形與 chunk 管理已完成。下一步在 repo 目錄開 Claude Code：
+
+> 讀 docs/ROADMAP.md，繼續做階段 1 的第一人稱控制。

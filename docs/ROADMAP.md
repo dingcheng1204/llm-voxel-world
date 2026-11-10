@@ -3,19 +3,21 @@
 每個階段完成條件：`npm run build` 通過、部署到 Vercel 預覽、用 Chrome DevTools MCP 截圖確認、勾選本檔。
 
 ## 階段 0 — 專案骨架
-- [ ] `npm create vite@latest`（vanilla-ts），加入 `three`、`@types/three`
-- [ ] ESLint + Prettier + `tsc --noEmit`，GitHub Actions 跑 typecheck/lint/build
-- [ ] `src/engine/renderer.ts`：場景、相機、燈光、resize、render loop
-- [ ] 畫面上出現一個有貼圖的方塊
-- [ ] F3 debug overlay：FPS、draw calls、三角形數
+- [x] Vite + TypeScript strict + `three`
+- [x] ESLint + Prettier + `tsc --noEmit` + Vitest；GitHub Actions 跑 typecheck/lint/test/build
+- [x] `src/engine/renderer.ts`：場景、相機、fog、resize、context lost 處理
+- [x] `src/engine/loop.ts`：60 Hz 固定步長 + 渲染內插
+- [x] 畫面上出現方塊（先用 worker 產生的種子地形 + 自動飛行鏡頭展示）
+- [x] F3 debug overlay：FPS、1% low、draw calls、三角形數、chunk 狀態
+- [x] 效能原則文件 `docs/PERFORMANCE.md`
 - [ ] 連上 Vercel，push 就自動部署
 
 ## 階段 1 — 方塊世界 MVP
-- [ ] `world/coords.ts`、`world/blocks.ts`（照 voxel-engine skill）
-- [ ] `world/chunk.ts`：Uint8Array 存取、單元測試（vitest）涵蓋負座標
-- [ ] `world/terrain.ts`：seed + simplex noise，草/土/石/基岩/沙/水/樹
-- [ ] face-culling mesher；跨 chunk 邊界正確
-- [ ] chunk manager：半徑 6 螺旋載入、卸載、dispose
+- [x] `world/coords.ts`、`world/blocks.ts`（照 voxel-engine skill）
+- [x] `world/chunk.ts`：Uint8Array 存取、單元測試涵蓋負座標
+- [x] `world/terrain.ts`：seed + simplex noise，草/土/石/基岩/沙/水/樹
+- [x] face-culling mesher（在 worker）；跨 chunk 邊界正確
+- [x] chunk manager：由近到遠載入、卸載、dispose
 - [ ] 貼圖 atlas（16px，NearestFilter）
 - [ ] 第一人稱：PointerLockControls、WASD、跳、衝刺
 - [ ] AABB 碰撞（固定 60Hz 物理步進）
