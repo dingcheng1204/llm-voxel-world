@@ -103,7 +103,13 @@ describe('WorldSave (cloud)', () => {
       queries.push(url);
       return new Response(JSON.stringify({ edits: [], now: '2026-01-01T00:00:10.000Z' }), { status: 200 });
     }) as unknown as typeof fetch;
-    const s = new WorldSave(7, sink(), { url: 'https://x.supabase.co', anonKey: 'k' }, new MemStorage(), fakeFetch);
+    const s = new WorldSave(
+      7,
+      sink(),
+      { url: 'https://x.supabase.co', anonKey: 'k' },
+      new MemStorage(),
+      fakeFetch,
+    );
     await s.pull();
     await s.pull();
     expect(decodeURIComponent(queries[1]!)).toContain('since=2026-01-01T00:00:05.000Z');

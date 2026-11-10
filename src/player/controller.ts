@@ -62,6 +62,12 @@ export class PlayerController {
     this.selection.renderOrder = 3;
   }
 
+  private readonly feet = new THREE.Vector3();
+  /** Feet position (for agents: "don't place a block inside the player", walk_to player later). */
+  get bodyPos(): THREE.Vector3 {
+    return this.feet.set(this.body.x, this.body.y, this.body.z);
+  }
+
   get object(): THREE.Object3D {
     return this.selection;
   }

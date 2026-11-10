@@ -67,6 +67,7 @@ instructions into the prompt.
   "self": { "pos": [12, 34, -5], "facing": "north", "holding": "planks", "inventory": {"planks": 12, "log": 3} },
   "looking_at": { "block": "log", "pos": [12, 35, -7], "dist": 2.1 },
   "nearby_blocks": { "log": 8, "water": 40, "sand": 22 },
+  "nearest": { "log": { "pos": [13, 35, -6], "dist": 1.7 }, "water": { "pos": [9, 33, -2], "dist": 4.1 } },
   "landmarks": [ { "name": "Clio's hut", "pos": [0, 30, 0], "dist": 14 } ],
   "nearby_agents": [ { "id": "gem", "pos": [15, 34, -3], "dist": 3.6, "doing": "mining" } ],
   "heard": [ { "from": "gem", "text": "這片沙灘下面好像有洞穴！", "t": "14:19" } ],
@@ -74,7 +75,9 @@ instructions into the prompt.
 }
 ```
 
-Radius: blocks 8, agents 24, hearing 16. Summarise; never dump raw chunk arrays into prompts.
+Radius: block counts 8, `nearest` 16 (one position per block kind — this is what lets a brain pick a target to
+walk to / mine), agents 24, hearing 16, landmarks 96. Only air-exposed blocks are reported (no buried stone).
+Summarise; never dump raw chunk arrays into prompts. Implemented in `src/agents/perceive.ts`.
 
 ## 4. Output contract (actions)
 
@@ -95,7 +98,7 @@ Allowed action types (max 3 per response, executed in order):
 
 | type        | params                              | notes |
 |-------------|-------------------------------------|-------|
-| `walk_to`   | `target: [x,y,z]` or `agent: id` or `landmark: name` | A* pathfinding, gives up after 64 nodes |
+| `walk_to`   | `target: [x,y,z]` or `agent: id` or `landmark: name` | A* (≤ 8000 nodes); a block target → stand next to it; partial path → fails with "could only get partway there" |
 | `look_at`   | `target: [x,y,z]`                   | |
 | `mine`      | `target: [x,y,z]`                   | must be within reach 5 and visible |
 | `place`     | `target: [x,y,z]`, `block: name`    | must be in inventory |
@@ -104,13 +107,24 @@ Allowed action types (max 3 per response, executed in order):
 | `wait`      | `seconds: n` (≤ 30)                 | |
 | `idle`      | —                                   | |
 
-The executor reports success/failure back via `last_action_result`. Bodies obey the same physics as
-the player (see the `voxel-engine` skill).
+The executor (`src/agents/executor.ts`) reports success/failure back via `last_action_result`, with a short
+`reason` on failure ("out of reach (6.2 blocks away, reach is 5)", "cannot see that block from here",
+"no log in inventory", "stuck", …). **A failed action cancels the rest of the plan** so the brain re-thinks.
+Reach is 5 from the eye; mined blocks go to the inventory; placed blocks must touch another block and not
+overlap anyone. Bodies obey the same physics as the player (see the `voxel-engine` skill).
+
+Brains implement `Brain.think(perception, retryError?)` (`src/agents/brains/demo.ts`) and may return a string,
+an object or a Promise — `Agent` validates it. Scripted `DemoBrain` (gather / explore) stands in until phase 4.
+
+**Agent edits are not saved yet**: every visitor's browser runs its own copy of the characters, so their world
+edits stay local. In phase 4 the agents run server-side and write the shared world (`world_edits`, `by` = agent id).
 
 ## 5. Thinking cadence & cost
 
 - A character thinks when: its action queue is empty, it heard something addressed to it, or 20 s passed.
-- Minimum gap between thinks: 6 s. Idle characters with nobody nearby think at most once per 60 s.
+- Minimum gap between thinks: 6 s for LLM brains (`DEFAULT_THINK_GAP`; scripted demo brains use 1.5 s).
+  Idle characters with nobody nearby think at most once per 60 s.
+- A character waits until the terrain under it is loaded before its first think.
 - Per-character daily budget (tokens and USD) in `agents/budget.yaml`; when exceeded the character
   "goes to sleep" until the next day. Diary writing has its own reserved budget so it always runs.
 

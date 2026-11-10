@@ -7,9 +7,11 @@ import { DayNight, WorldClock } from './scene/dayNight';
 import { Environment } from './scene/environment';
 import { FireSystem } from './scene/fire';
 import { createProps } from './scene/props';
-import { AgentBody } from './agents/AgentBody';
+import { Agent } from './agents/Agent';
+import { AgentView } from './agents/AgentView';
+import { DemoBrain } from './agents/brains/demo';
 import { CAST } from './agents/cast';
-import { WanderBrain } from './agents/wanderBrain';
+import { ChatLog, Landmarks } from './agents/worldState';
 import { Hotbar } from './player/hotbar';
 import { Input } from './player/input';
 import { PlayerController } from './player/controller';
@@ -44,9 +46,53 @@ const spawns = lineup
       return { x, y: world.terrain.heightAt(x, z) + 1, z };
     })
   : world.terrain.spawnPoints(CAST.length);
-const agents = CAST.map((m, i) => new AgentBody(m, spawns[i]!));
-const brains = lineup ? [] : agents.map((a) => new WanderBrain(a, plaza, plaza.r - 2));
-for (const a of agents) ctx.scene.add(a.view);
+const landmarks = new Landmarks();
+const chat = new ChatLog();
+let simTime = 0;
+const agentCtx = {
+  world,
+  exec: {
+    world,
+    landmarks,
+    bodies: () => [
+      ...agents.map((a) => ({ id: a.id, pos: a.body.pos, halfWidth: 0.35, height: 0.95 })),
+      ...(player ? [{ id: 'player', pos: player.bodyPos, halfWidth: 0.3, height: 1.8 }] : []),
+    ],
+  },
+  perceive: {
+    world,
+    landmarks,
+    chat,
+    clock: {
+      get day() {
+        return clock.day;
+      },
+      get clock() {
+        return clock.clock;
+      },
+      get t() {
+        return clock.t;
+      },
+    },
+    others: () => agents.map((a) => ({ id: a.id, pos: a.body.pos, doing: a.executor.doing })),
+    now: 0,
+  },
+};
+// Phase 3: scripted brains (same JSON contract as the LLM brains coming in phase 4).
+// Cat and wolf gather wood; fox and snake explore and name places.
+const agents: Agent[] = CAST.map((m, i) => {
+  const s = spawns[i]!;
+  const home: [number, number, number] = [Math.floor(s.x), Math.floor(s.y), Math.floor(s.z)];
+  const brain = new DemoBrain(
+    m.species === 'cat' || m.species === 'wolf' ? 'gather' : 'explore',
+    home,
+    Math.random,
+    25,
+  );
+  return new Agent(m, s, brain, agentCtx, 1.5);
+});
+const views = agents.map((a) => new AgentView(a));
+for (const v of views) ctx.scene.add(v.root, v.pathLine);
 
 const params = new URLSearchParams(location.search);
 // Shared world clock (1 game day = 20 real minutes). ?time=0.8 freezes it at that time of day (0 = midnight, 0.5 = noon).
@@ -68,7 +114,7 @@ const hotbar = new Hotbar(hotbarEl);
 const player = demo
   ? null
   : new PlayerController(world, input, hotbar, ctx.camera, { x: plaza.x + 0.5, z: plaza.z + 5.5 }, () =>
-      agents.map((a) => ({ pos: a.pos })),
+      agents.map((a) => ({ pos: a.body.pos })),
     );
 if (player) {
   ctx.scene.add(player.object);
@@ -115,8 +161,8 @@ const loop = new GameLoop(
       prev.copy(next);
       orbit(t, next);
       player?.tick(dt);
-      for (const b of brains) b.tick(dt);
-      for (const a of agents) a.tick(dt, world);
+      simTime += dt;
+      if (!lineup) for (const a of agents) a.tick(dt, simTime);
     },
     render(alpha, frameDt) {
       if (player) {
@@ -133,7 +179,7 @@ const loop = new GameLoop(
       fire.update(time);
       env.update(time, cam);
       dayNight.update(cam, world.fires);
-      for (const a of agents) a.render(alpha, time);
+      for (const v of views) v.render(alpha, time, !debugEl.hidden);
       ctx.renderer.render(ctx.scene, cam);
       overlay.frame(frameDt);
     },
@@ -149,11 +195,12 @@ overlay.setExtra(() => {
     save: `${save.status.saved} blocks  cloud ${save.status.cloud}${save.status.pending ? ` (${save.status.pending} pending)` : ''}`,
     chunks: `${s.meshed}/${s.loaded}  queue ${s.meshQueue}  workers ${s.workers}`,
     props: world.terrain.props.length,
-    agents: agents.map((a) => `${a.member.name}(${a.member.species})`).join(' '),
+    agents: agents.map((a) => `${a.member.name}:${a.executor.doing}`).join(' '),
+    landmarks: landmarks.list.length,
     pos: `${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}`,
     ...(player
       ? {
-          player: `${player.flying ? 'flying' : player.inWater ? 'swimming' : player.body.onGround ? 'ground' : 'air'}  edits ${world.edits.length}`,
+          player: `${player.flying ? 'flying' : player.inWater ? 'swimming' : player.body.onGround ? 'ground' : 'air'}  world edits ${world.edits.length}`,
           target: player.target ? `${player.target.block.join(',')} (${player.target.id})` : '-',
         }
       : {}),
@@ -165,7 +212,7 @@ loop.start();
 
 // Expose for debugging from DevTools / MCP.
 Object.assign(window, {
-  __game: { cfg, ctx, world, loop, agents, player, input, hotbar, clock, dayNight, save },
+  __game: { cfg, ctx, world, loop, agents, landmarks, chat, player, input, hotbar, clock, dayNight, save },
 });
 
 if (import.meta.hot) {

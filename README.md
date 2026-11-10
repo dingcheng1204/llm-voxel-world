@@ -44,4 +44,4 @@ npm run check      # typecheck + lint + test + build
 
 URL 參數：`?pr=1` 解析度上限、`?aa=1` 反鋸齒、`?seed=42` 世界種子；展示鏡頭用 `?view=overview` 看全島、`?lineup=1` 讓 4 個角色排排站、`?orbit=0` 停止旋轉、`?dist=` `?h=` `?angle=` 調整視角。效能設計見 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
 
-目前進度：階段 0、1 完成（除了實機 FPS 驗收）。下一步：階段 2 存檔，或階段 3 讓角色用同一套物理與動作。
+目前進度：階段 0–3 完成（實機 FPS 驗收待確認）。角色目前由腳本大腦驅動；下一步階段 4 接上 Claude。按 F3 可看到角色的路徑和正在做的事。

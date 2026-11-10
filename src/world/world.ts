@@ -33,6 +33,8 @@ export interface WorldOptions {
   genBudgetMs: number;
   /** Finite world: only these chunks exist; everything outside is ocean. Defaults to the island. */
   bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
+  /** No meshing / workers (simulation only — tests, and later server-side agents). */
+  headless?: boolean;
 }
 
 export interface BlockPos {
@@ -62,12 +64,13 @@ export class World {
   fireVersion = 0;
   /** Chunks changed by setBlock that need a priority re-mesh. */
   private readonly dirty = new Set<ChunkKey>();
-  private readonly pool = new MeshWorkerPool();
+  private readonly pool: MeshWorkerPool | null;
   private wanted: [number, number][] = [];
 
   constructor(private readonly opts: WorldOptions) {
     this.terrain = new TerrainGenerator(opts.seed);
     this.bounds = opts.bounds ?? ISLAND_CHUNKS;
+    this.pool = opts.headless ? null : new MeshWorkerPool();
     this.group.name = 'world';
   }
 
@@ -85,7 +88,13 @@ export class World {
     for (const e of this.chunks.values()) if (e.opaque || e.water) meshed++;
     const b = this.bounds;
     const total = (b.maxX - b.minX + 1) * (b.maxZ - b.minZ + 1);
-    return { loaded: this.chunks.size, meshed, total, meshQueue: this.pool.pending, workers: this.pool.size };
+    return {
+      loaded: this.chunks.size,
+      meshed,
+      total,
+      meshQueue: this.pool?.pending ?? 0,
+      workers: this.pool?.size ?? 0,
+    };
   }
 
   heightAt(x: number, z: number): number {
@@ -121,6 +130,10 @@ export class World {
       }
     }
 
+    if (!this.pool) {
+      this.dirty.clear();
+      return;
+    }
     // Edited chunks first, at the front of the worker queue, so changes appear immediately.
     for (const key of this.dirty) {
       const e = this.chunks.get(key);
@@ -162,6 +175,14 @@ export class World {
     const e = this.chunks.get(chunkKey(Math.floor(x / CHUNK_X), Math.floor(z / CHUNK_Z)));
     if (!e) return 0;
     return e.chunk.get(((x % CHUNK_X) + CHUNK_X) % CHUNK_X, y, ((z % CHUNK_Z) + CHUNK_Z) % CHUNK_Z);
+  }
+
+  /** Generate every chunk immediately (headless simulation / tests). */
+  loadAll(): void {
+    const budget = this.opts.genBudgetMs;
+    (this.opts as { genBudgetMs: number }).genBudgetMs = Infinity;
+    this.update(new THREE.Vector3());
+    (this.opts as { genBudgetMs: number }).genBudgetMs = budget;
   }
 
   /** Has the chunk containing (x, z) been generated? */
@@ -273,12 +294,13 @@ export class World {
 
   dispose(): void {
     for (const key of [...this.chunks.keys()]) this.unload(key);
-    this.pool.dispose();
+    this.pool?.dispose();
   }
 
   private dispatchMesh(e: ChunkEntry, padded: Uint8Array, urgent = false): void {
     e.meshing = true;
     const version = e.version;
+    if (!this.pool) return;
     this.pool
       .mesh(padded, e.chunk.cx, e.chunk.cz, urgent)
       .then((data) => {

@@ -90,8 +90,13 @@ export class WorldSave {
     this.flushLocal();
   }
 
-  /** Record a local edit (from World.onEdit). */
+  /**
+   * Record a local edit (from World.onEdit). Only the player's own edits are saved: every visitor's
+   * browser runs its own copy of the characters, so their edits stay local until the agents run
+   * server-side (ROADMAP phase 4) and write the shared world themselves.
+   */
   record(e: { x: number; y: number; z: number; id: number; by: string; t: number }): void {
+    if (e.by !== 'player') return;
     this.remember([e.x, e.y, e.z, e.id, e.t], false);
     if (this.cloud) this.pending.push({ x: e.x, y: e.y, z: e.z, id: e.id, by: e.by });
     this.updateStatus();

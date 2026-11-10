@@ -39,14 +39,14 @@
 ## 階段 3 — 角色身體（還沒接 LLM）
 - [x] `agents/AgentBody.ts`：共用身體；4 種可愛動物模型（貓/狐狸/狼/蛇）+ 名牌
 - [x] 暫代大腦 `WanderBrain`（在廣場閒晃），之後換成 LLM
-- [ ] 改用和玩家相同的 AABB 物理
-- [ ] `agents/actions.ts`：zod schema（walk_to, look_at, mine, place, follow, name_place, wait, idle）
-- [ ] `agents/pathfinding.ts`：3D A*（可走 = 腳下實心、身體 2 格空、可跳 1 格）
-- [ ] `agents/executor.ts`：動作佇列、成功/失敗回報
-- [ ] `agents/perceive.ts`：產生 Perception JSON
-- [ ] 寫死的腳本角色：走到樹邊 → 挖 3 塊原木 → 回家
-- [ ] debug：顯示路徑、目前動作、Perception
-- [ ] ✅ 驗收：腳本角色連跑 10 分鐘不卡住
+- [x] 改用和玩家相同的 AABB 物理（`AgentBody` + `stepBody`；所有物種同一個身體 0.7×0.95）
+- [x] `agents/actions.ts`：zod schema（walk_to, look_at, mine, place, follow, name_place, wait, idle），錯誤訊息可回饋給大腦重試
+- [x] `agents/pathfinding.ts`：3D A*（可走 = 腳下實心、身體 2 格空、可跳上 1 格、可跳下 3 格、斜走不切角、避開水/岩漿/海）
+- [x] `agents/executor.ts`：動作佇列、可達/可見檢查、背包、卡住自動重新規劃、成功/失敗回報
+- [x] `agents/perceive.ts`：產生 Perception JSON（含每種方塊最近的位置 `nearest`）
+- [x] 寫死的腳本角色：走到樹邊 → 挖 3 塊原木 → 回家放下（`brains/demo.ts`，與 LLM 用同一個 JSON 介面）
+- [x] debug（F3）：顯示路徑線、目前動作、背包、想法；`__game.agents[i].lastPerception`
+- [x] ✅ 驗收：4 個腳本角色在真實島嶼上無頭模擬 10 分鐘（`soak.test.ts`）：不卡住、不掉海、不卡進方塊，採集者各完成 30+ 輪
 
 ## 階段 4 — 第一個大腦（Claude）
 - [ ] `.env`：AI Gateway key；`api/agent/think.ts`（AI SDK `generateObject` + zod）

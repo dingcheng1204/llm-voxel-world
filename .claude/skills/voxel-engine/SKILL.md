@@ -131,6 +131,9 @@ and drawn by their own system. The mesher reads flat lookup tables (`FACE_RGB`, 
 - `?view=overview` / `?lineup=1` keep the orbit demo camera instead of the player; `?debug=1` opens F3 at start;
   `__game.input.simulate` drives input from tests/automation.
 - **Agents use the same physics and collision code as the player** (`stepBody`, `World.isSolid`). No teleporting.
+  Agent body (all species): half-width 0.35, height 0.95, eye 0.8, walk 2.2 m/s, jump 9 (`AGENT_BODY` in `agents/AgentBody.ts`).
+- `new World({ headless: true })` + `world.loadAll()` runs the full simulation without rendering or workers
+  (soak tests; later server-side agents).
 
 ## 8. Persistence
 
