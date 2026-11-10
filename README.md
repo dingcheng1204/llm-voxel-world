@@ -14,6 +14,7 @@
 線上版：https://llm-voxel-world.vercel.app （push 到 `main` 自動部署）
 
 ## 文件
+- [docs/PROGRESS.md](docs/PROGRESS.md) — **目前進度說明**（做了什麼、架構、限制、下一步）
 - [docs/BLUEPRINT.md](docs/BLUEPRINT.md) — 架構、資料模型、API、AI 角色設計、風險
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 分階段開發清單（0 → 7）
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — 效能預算與做法
