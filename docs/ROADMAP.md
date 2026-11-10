@@ -18,11 +18,12 @@
 - [x] `world/terrain.ts`：seed + simplex noise，草/土/石/基岩/沙/水/樹
 - [x] face-culling mesher（在 worker）；跨 chunk 邊界正確
 - [x] chunk manager：由近到遠載入、卸載、dispose
-- [ ] 第一人稱：PointerLockControls、WASD、跳、衝刺
-- [ ] AABB 碰撞（固定 60Hz 物理步進）
-- [ ] voxel DDA raycast；左鍵挖、右鍵放；選取框
-- [ ] 快捷列 1–9
-- [ ] ✅ 驗收：走 2 分鐘、挖放 50 次，FPS ≥ 60，不會卡進方塊
+- [x] 第一人稱：pointer lock、WASD、跳、衝刺；另加游泳（海與湖）與飛行（F）
+- [x] AABB 碰撞（固定 60Hz 物理步進，快速下落不穿透）— `player/physics.ts`，之後角色共用
+- [x] voxel DDA raycast；左鍵挖、右鍵放（按住連續）；選取框；不能把方塊放在自己或角色身上
+- [x] 快捷列 1–9 + 滾輪（草、土、石頭、原木、木板、磚、玩具方塊、水、火）
+- [x] 編輯過的 chunk 優先重建，挖放立即生效
+- [ ] ✅ 驗收：走 2 分鐘、挖放 50 次，FPS ≥ 60，不會卡進方塊（功能已自動測試；FPS 待實機確認）
 
 ## 階段 2 — 世界打磨
 - [ ] 編輯存 localStorage，重新整理後還在

@@ -76,6 +76,8 @@ export class World {
   /** World positions of fire blocks (rendered by FireSystem). `fireVersion` bumps on change. */
   private readonly fireByChunk = new Map<ChunkKey, BlockPos[]>();
   fireVersion = 0;
+  /** Chunks changed by setBlock that need a priority re-mesh. */
+  private readonly dirty = new Set<ChunkKey>();
   private readonly pool = new MeshWorkerPool();
   private wanted: [number, number][] = [];
 
@@ -129,6 +131,16 @@ export class World {
       }
     }
 
+    // Edited chunks first, at the front of the worker queue, so changes appear immediately.
+    for (const key of this.dirty) {
+      const e = this.chunks.get(key);
+      if (!e || e.meshing) continue;
+      this.dirty.delete(key);
+      if (e.meshedVersion === e.version) continue;
+      const padded = this.buildPadded(e.chunk.cx, e.chunk.cz);
+      if (padded) this.dispatchMesh(e, padded, true);
+    }
+
     // Dispatch meshing for chunks whose in-bounds neighbours exist.
     for (const [x, z] of this.wanted) {
       const e = this.chunks.get(chunkKey(x, z));
@@ -162,6 +174,60 @@ export class World {
     return e.chunk.get(((x % CHUNK_X) + CHUNK_X) % CHUNK_X, y, ((z % CHUNK_Z) + CHUNK_Z) % CHUNK_Z);
   }
 
+  /** Has the chunk containing (x, z) been generated? */
+  isLoaded(x: number, z: number): boolean {
+    return this.chunks.has(chunkKey(Math.floor(x / CHUNK_X), Math.floor(z / CHUNK_Z)));
+  }
+
+  /** Collision query: solid blocks, bedrock below the world, and the sea floor outside the island. */
+  isSolid(x: number, y: number, z: number): boolean {
+    if (y < 0) return true;
+    if (y >= CHUNK_Y) return false;
+    const cx = Math.floor(x / CHUNK_X);
+    const cz = Math.floor(z / CHUNK_Z);
+    if (!this.inBounds(cx, cz)) return y < 2; // endless sand floor plane
+    return IS_SOLID[this.getBlock(x, y, z)] === 1;
+  }
+
+  /** Edits made this session ({x,y,z,id,by,t}); persisted in ROADMAP phase 2. */
+  readonly edits: { x: number; y: number; z: number; id: number; by: string; t: number }[] = [];
+
+  /**
+   * Change one block (player or agent). Marks the chunk — and a neighbour when the block sits on a
+   * chunk border — for re-meshing; the old mesh stays visible until the new one arrives (no flicker).
+   * Returns false if the position is outside the world.
+   */
+  setBlock(x: number, y: number, z: number, id: number, by = 'player'): boolean {
+    if (y < 0 || y >= CHUNK_Y) return false;
+    const cx = Math.floor(x / CHUNK_X);
+    const cz = Math.floor(z / CHUNK_Z);
+    const key = chunkKey(cx, cz);
+    const e = this.chunks.get(key);
+    if (!e) return false;
+    const lx = x - cx * CHUNK_X;
+    const lz = z - cz * CHUNK_Z;
+    const old = e.chunk.get(lx, y, lz);
+    if (old === id) return true;
+    e.chunk.set(lx, y, lz, id);
+    e.version++;
+    this.dirty.add(key);
+    const touch = (nx: number, nz: number) => {
+      const nk = chunkKey(nx, nz);
+      const n = this.chunks.get(nk);
+      if (n) {
+        n.version++;
+        this.dirty.add(nk);
+      }
+    };
+    if (lx === 0) touch(cx - 1, cz);
+    if (lx === CHUNK_X - 1) touch(cx + 1, cz);
+    if (lz === 0) touch(cx, cz - 1);
+    if (lz === CHUNK_Z - 1) touch(cx, cz + 1);
+    if (old === B.fire || id === B.fire) this.indexFires(key, e.chunk);
+    this.edits.push({ x, y, z, id, by, t: Date.now() });
+    return true;
+  }
+
   /** y of the first free cell above the highest solid block at (x, z), or the terrain height if not loaded. */
   groundY(x: number, z: number): number {
     const bx = Math.floor(x);
@@ -178,11 +244,11 @@ export class World {
     this.pool.dispose();
   }
 
-  private dispatchMesh(e: ChunkEntry, padded: Uint8Array): void {
+  private dispatchMesh(e: ChunkEntry, padded: Uint8Array, urgent = false): void {
     e.meshing = true;
     const version = e.version;
     this.pool
-      .mesh(padded, e.chunk.cx, e.chunk.cz)
+      .mesh(padded, e.chunk.cx, e.chunk.cz, urgent)
       .then((data) => {
         e.meshing = false;
         if (this.chunks.get(chunkKey(e.chunk.cx, e.chunk.cz)) !== e) return; // unloaded meanwhile

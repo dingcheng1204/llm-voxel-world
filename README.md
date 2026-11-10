@@ -29,6 +29,11 @@ Chrome DevTools（除錯／效能）、Playwright（E2E）、Context7（最新�
 ## 技術棧
 Vite · TypeScript · Three.js · Vercel Functions · AI SDK / AI Gateway · Supabase
 
+## 操作
+
+點一下畫面開始。<kbd>WASD</kbd> 移動、<kbd>空白</kbd> 跳／游泳、<kbd>Shift</kbd> 衝刺、<kbd>F</kbd> 飛行（<kbd>C</kbd> 下降）、
+左鍵挖、右鍵放、<kbd>1</kbd>–<kbd>9</kbd> 或滾輪選方塊、<kbd>F3</kbd> 效能面板、<kbd>Esc</kbd> 暫停。
+
 ## 開發
 
 ```bash
@@ -39,6 +44,4 @@ npm run check      # typecheck + lint + test + build
 
 URL 參數：`?pr=1` 解析度上限、`?aa=1` 反鋸齒、`?seed=42` 世界種子；展示鏡頭用 `?view=overview` 看全島、`?lineup=1` 讓 4 個角色排排站、`?orbit=0` 停止旋轉、`?dist=` `?h=` `?angle=` 調整視角。效能設計見 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
 
-目前進度：階段 0 完成，階段 1 的地形與 chunk 管理已完成。下一步在 repo 目錄開 Claude Code：
-
-> 讀 docs/ROADMAP.md，繼續做階段 1 的第一人稱控制。
+目前進度：階段 0、1 完成（除了實機 FPS 驗收）。下一步：階段 2 存檔，或階段 3 讓角色用同一套物理與動作。

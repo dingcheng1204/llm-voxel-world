@@ -34,10 +34,15 @@ export class MeshWorkerPool {
     return this.queue.length + this.busy.size;
   }
 
-  /** `padded` is transferred (neutered) — do not reuse it after calling. */
-  mesh(padded: Uint8Array, cx: number, cz: number): Promise<ChunkMeshData> {
+  /**
+   * `padded` is transferred (neutered) — do not reuse it after calling.
+   * `urgent` jobs (block edits) jump ahead of the initial terrain-load queue.
+   */
+  mesh(padded: Uint8Array, cx: number, cz: number, urgent = false): Promise<ChunkMeshData> {
     return new Promise((resolve, reject) => {
-      this.queue.push({ jobId: this.nextId++, padded, cx, cz, resolve, reject });
+      const job = { jobId: this.nextId++, padded, cx, cz, resolve, reject };
+      if (urgent) this.queue.unshift(job);
+      else this.queue.push(job);
       this.pump();
     });
   }

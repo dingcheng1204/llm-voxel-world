@@ -9,6 +9,9 @@ import { createProps } from './scene/props';
 import { AgentBody } from './agents/AgentBody';
 import { CAST } from './agents/cast';
 import { WanderBrain } from './agents/wanderBrain';
+import { Hotbar } from './player/hotbar';
+import { Input } from './player/input';
+import { PlayerController } from './player/controller';
 import { SEA_LEVEL } from './world/coords';
 import { World } from './world/world';
 
@@ -38,11 +41,36 @@ const agents = CAST.map((m, i) => new AgentBody(m, spawns[i]!));
 const brains = lineup ? [] : agents.map((a) => new WanderBrain(a, plaza, plaza.r - 2));
 for (const a of agents) ctx.scene.add(a.view);
 
-const overlay = new DebugOverlay(document.getElementById('debug')!, ctx.renderer);
-
-// Phase 0 demo camera: slow orbit around the island. Replaced by the player in ROADMAP phase 1.
-// ?orbit=0 freezes it; ?view=overview shows the whole island; ?angle= ?dist= ?h= fine-tune the view.
 const params = new URLSearchParams(location.search);
+const debugEl = document.getElementById('debug')!;
+if (params.get('debug') === '1') debugEl.hidden = false;
+const overlay = new DebugOverlay(debugEl, ctx.renderer);
+
+// Two camera modes:
+//  - play (default): first-person player — click to lock the mouse.
+//  - demo (?view=overview or ?lineup=1): slow orbit camera, handy for screenshots and checks.
+//    ?orbit=0 freezes it; ?angle= ?dist= ?h= fine-tune the view.
+const demo = params.get('view') === 'overview' || lineup;
+const input = new Input(ctx.renderer.domElement);
+const hotbarEl = document.getElementById('hotbar')!;
+const hotbar = new Hotbar(hotbarEl);
+const player = demo
+  ? null
+  : new PlayerController(world, input, hotbar, ctx.camera, { x: plaza.x + 0.5, z: plaza.z + 5.5 }, () =>
+      agents.map((a) => ({ pos: a.pos })),
+    );
+if (player) {
+  ctx.scene.add(player.object);
+  const playOverlay = document.getElementById('play-overlay')!;
+  const crosshair = document.getElementById('crosshair')!;
+  playOverlay.hidden = false;
+  hotbarEl.hidden = false;
+  playOverlay.addEventListener('click', () => input.requestLock());
+  input.onLockChange = (locked) => {
+    playOverlay.hidden = locked;
+    crosshair.hidden = !locked;
+  };
+}
 const cam = ctx.camera;
 const orbitSpeed = params.get('orbit') === '0' ? 0 : 0.05;
 const startAngle = Number(params.get('angle') ?? (params.get('lineup') === '1' ? Math.PI / 2 : 1.2));
@@ -71,12 +99,17 @@ const loop = new GameLoop(
       t += dt;
       prev.copy(next);
       orbit(t, next);
+      player?.tick(dt);
       for (const b of brains) b.tick(dt);
       for (const a of agents) a.tick(dt, world);
     },
     render(alpha, frameDt) {
-      cam.position.lerpVectors(prev, next, alpha);
-      cam.lookAt(target);
+      if (player) {
+        player.render(alpha);
+      } else {
+        cam.position.lerpVectors(prev, next, alpha);
+        cam.lookAt(target);
+      }
       const time = t + alpha / cfg.tickRate;
       world.update(cam.position);
       // Props appear once the terrain under them exists (no floating palms while loading).
@@ -100,6 +133,12 @@ overlay.setExtra(() => {
     props: world.terrain.props.length,
     agents: agents.map((a) => `${a.member.name}(${a.member.species})`).join(' '),
     pos: `${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}`,
+    ...(player
+      ? {
+          player: `${player.flying ? 'flying' : player.inWater ? 'swimming' : player.body.onGround ? 'ground' : 'air'}  edits ${world.edits.length}`,
+          target: player.target ? `${player.target.block.join(',')} (${player.target.id})` : '-',
+        }
+      : {}),
     dropped: loop.droppedTicks,
   };
 });
@@ -107,7 +146,7 @@ overlay.setExtra(() => {
 loop.start();
 
 // Expose for debugging from DevTools / MCP.
-Object.assign(window, { __game: { cfg, ctx, world, loop, agents } });
+Object.assign(window, { __game: { cfg, ctx, world, loop, agents, player, input, hotbar } });
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {

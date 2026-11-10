@@ -107,7 +107,11 @@ and drawn by their own system. The mesher reads flat lookup tables (`FACE_RGB`, 
 ## 6. Raycasting (block picking)
 
 - Use the voxel DDA (Amanatides & Woo) in `src/world/raycast.ts`, not `THREE.Raycaster` against meshes.
-- Signature: `raycastVoxel(origin: Vector3, dir: Vector3, maxDist = 5): { block: Vec3i, normal: Vec3i, id } | null`.
+- Signature: `raycastVoxel(getBlock, hits, origin, dir, maxDist = 5): { block, normal, id, distance } | null`.
+  The player targets everything except air, water and lava. Reach 5 blocks.
+- Edits go through `World.setBlock(x, y, z, id, by)`: marks the chunk (and a border neighbour) dirty; dirty chunks
+  are re-meshed **at the front of the worker queue** so edits show immediately even while the island is loading.
+  Edits are logged in `world.edits` (persisted in ROADMAP phase 2).
 - Break = set `block` to air. Place = set `block + normal` to the selected id, only if it does not
   intersect the player's (or any agent's) AABB.
 - Agents use the same function for "what am I looking at".
@@ -117,9 +121,16 @@ and drawn by their own system. The mesher reads flat lookup tables (`FACE_RGB`, 
 - AABB: width 0.6, height 1.8, eye height 1.62. Position = feet center.
 - Gravity −28 m/s², jump velocity 9 m/s, walk 4.3 m/s, sprint 5.6 m/s.
 - Fixed-timestep physics at 60 Hz with an accumulator; render interpolates.
-- Collision: resolve per axis (Y first, then X, then Z) against solid blocks overlapping the AABB.
-- Controls: `PointerLockControls`, WASD, Space jump, Shift sprint, LMB break, RMB place, 1–9 hotbar.
-- **Agents use the same physics and collision code as the player.** No teleporting.
+- Collision: resolve per axis (Y first, then X, then Z) against solid blocks overlapping the AABB
+  (`stepBody` in `src/player/physics.ts`; big steps are split so fast falls never tunnel).
+- Collision query is `World.isSolid`: solid blocks, bedrock below y = 0, and the sea floor (y < 2) outside the island.
+- Controls (`src/player/controller.ts`, `input.ts`, `hotbar.ts`): pointer lock, WASD, Space jump / swim up,
+  Shift sprint, F fly (C down), LMB break, RMB place (hold to repeat), 1–9 / wheel hotbar, Esc pause.
+- Swimming: below the ocean surface or inside a water block → weak gravity, slow sinking, Space swims up.
+- The player waits (no physics) until the chunk under it is generated.
+- `?view=overview` / `?lineup=1` keep the orbit demo camera instead of the player; `?debug=1` opens F3 at start;
+  `__game.input.simulate` drives input from tests/automation.
+- **Agents use the same physics and collision code as the player** (`stepBody`, `World.isSolid`). No teleporting.
 
 ## 8. Persistence
 
