@@ -50,6 +50,16 @@ Block IDs are `Uint8` (0–255). **IDs are part of the save format — never ren
 | 10 | bedrock | yes   | no          | unbreakable                  |
 | 11 | rock    | yes   | no          | darker 岩石, mountain tops / boulders |
 | 12 | fire    | no    | yes         | `render: 'none'` — drawn by `scene/fire.ts` (animated instanced flames) |
+| 13 | snow    | yes   | no          | mountain tops |
+| 14 | ice     | yes   | no          | opaque light blue (no transparency pass) |
+| 15 | clay    | yes   | no          | orange terracotta, volcano flanks |
+| 16 | gravel  | yes   | no          | lake bed, beach specks |
+| 17 | lava    | no    | no          | opaque liquid in the volcano crater; not solid |
+| 18 | brick   | yes   | no          | well, ruins |
+| 19 | mossy_stone | yes | no        | forest ruins |
+| 20 | crystal | yes   | no          | purple clusters on the big mountain |
+| 21–24 | toy_red / toy_orange / toy_yellow / toy_blue | yes | no | colourful toy blocks in the plaza |
+| 25 | flower_grass | yes | no       | fresher grass of the meadow (flowers are props) |
 
 The registry is `src/world/blocks.ts`: `BlockDef { id, name, solid, transparent, breakable, render, colors: { top, side, bottom } }`.
 Blocks are **flat-coloured, no textures** (art direction §10). `render: 'none'` blocks (fire) are skipped by the mesher
@@ -57,32 +67,41 @@ and drawn by their own system. The mesher reads flat lookup tables (`FACE_RGB`, 
 
 ## 4. Meshing
 
-- Phase 1: **face culling** — emit a face only if the neighbor in that direction is air or
-  (transparent and a different block id). Neighbor lookups across chunk borders must read
-  the adjacent chunk; if it is not loaded, treat it as air on the border (rebuild when it loads).
-- Phase 2: **greedy meshing** per face direction, in a Web Worker (`src/world/mesher.worker.ts`).
+- **Greedy meshing** (implemented): a face is visible if the neighbour is see-through and a different block id;
+  visible faces of the same block id and direction are merged into maximal rectangles per slice.
+  This cut the island from ~670k to ~104k triangles. Neighbours across chunk borders come from the padded volume;
+  outside the world bounds is air.
 - One `BufferGeometry` per chunk for opaque, one for water. Implemented in `src/world/mesher.ts`.
-  Current attributes (compact on purpose): `position` as **Uint8** local coords, `color` as **Uint8 normalised**
-  with directional shading baked in (top 1.0, ±X 0.8, ±Z 0.65, bottom 0.5); Uint16 indices unless > 65535 verts.
-  `MeshBasicMaterial` (no lighting cost). Phase 1–2 add `uv` (atlas) and per-vertex AO.
+  Attributes (compact on purpose): `position` as **Uint8** local coords, `color` as **Uint8 normalised**
+  with directional shading baked in (top 1.0, +X 0.86, −X 0.76, +Z 0.8, −Z 0.68, bottom 0.55); Uint16 indices
+  unless > 65535 verts. `MeshBasicMaterial` (no lighting cost).
+- The ±7 % per-block brightness tint is computed **in the fragment shader** from the block cell
+  (`floor(worldPos − faceNormal·0.5)` hashed), so merged quads still look like individual blocks. Never bake
+  per-block variation into vertex colours — it would stop greedy merging.
 - Meshing runs in `MeshWorkerPool` workers; the padded volume and the result buffers are **transferred**, not copied.
 - Set `geometry.boundingSphere/boundingBox` from the known chunk bounds; never call `computeBoundingSphere`.
 - Chunk meshes use `matrixAutoUpdate = false` and two shared materials.
 - After a block edit, rebuild that chunk, plus the neighbor chunk if the block is on a border.
 - Dispose the old geometry (`geometry.dispose()`) on every rebuild — leaks are the #1 FPS killer.
 
-## 5. Terrain generation — a small island
+## 5. Terrain generation — the island
 
-- The world is **finite and small**: chunks `x, z ∈ [-3, 2]` (96 × 96 blocks, `ISLAND_CHUNKS` in `terrain.ts`).
-  Everything outside is open ocean drawn by the ocean plane. Keep it small — it is a stage for the AI characters.
+- The world is **finite**: chunks `x ∈ [-6, 5]`, `z ∈ [-9, 8]` → **192 × 288 blocks** (`ISLAND_CHUNKS` in `terrain.ts`).
+  Everything outside is open ocean (ocean plane + an endless sand floor plane at y ≈ 2 under it).
+  Keep it this size — it is a stage for 4 AI characters, not an endless world.
 - Deterministic from the seed (`simplex-noise` + `alea`). Same seed ⇒ same world, everywhere.
-- Shape: radial island (radius ≈ 34, noise-warped coastline), seabed slopes deeper towards the world edge,
-  two rounded peaks (rock/stone with green foothills, one with a grass cap), a flat sandy plaza in the middle.
-- Columns: top = grass / sand (beach + plaza) / stone / rock, 3 blocks of dirt or sand under it, stone, bedrock at `y = 0`.
-- **No generated water blocks** — the animated ocean plane at `SEA_LEVEL + 0.82` is the sea. Water is still a placeable block.
-- Hand-made structures are world-space block lists (`buildStructures`): campfire (log + fire), wooden crates, a dock.
-- Decorative props (palms, bushes, boulders) come from `terrain.props` and are drawn by `scene/props.ts`
-  (one InstancedMesh per kind). They have **no collision** yet.
+- Shape: elliptical island (radii 82 × 126, noise-warped coast), seabed slopes deeper towards the edge.
+- Areas (`Biome`): `plaza` (sand, centre-south, campfire + toy blocks), `beach`, `grass`, `forest` (west, dense
+  block trees, mushrooms, mossy ruins), `meadow` (south-east, flower grass + flowers), `lake` (south-west, water blocks
+  above sea level, gravel bed), `mountain` (north: two snowy peaks with stone/rock, ice, crystals, green foothills),
+  `volcano` (east: clay/rock flanks, lava crater). A low grassy hill sits in the forest.
+- Columns: biome-chosen top block, 3 blocks of matching sub-surface (dirt/sand/gravel/clay/stone), stone, bedrock at y = 0.
+- Sea water is the animated ocean plane at `SEA_LEVEL + 0.82` — **no generated sea water blocks**. Lakes and the well use water blocks.
+- Structures and trees are world-space block lists built once in the constructor (`buildStructures`, `placeTrees`):
+  campfire, toy blocks, brick well, mossy ruins, crystal clusters, a dock on the south coast, round block trees.
+- Decorative props (palms, bushes, boulders, mushrooms, 4 flower colours) come from `terrain.props`, drawn by
+  `scene/props.ts` (one InstancedMesh per kind) and shown once all chunks are meshed. No collision yet.
+- `spawnPoints(n)` gives character spawn points around the plaza.
 - Generated chunks are NOT saved. Only player/agent **edits** are saved (see §8).
 
 ## 6. Raycasting (block picking)
@@ -115,7 +134,7 @@ Before saying a rendering/engine change works:
 1. Run `npm run dev`, open the page with the Chrome DevTools MCP, and take a screenshot.
 2. Check the console for WebGL errors / warnings.
 3. Read the debug overlay (F3): FPS, draw calls, triangles, loaded chunks, player position.
-   Targets: ≥ 60 FPS, < 200 draw calls at render distance 6.
+   Targets (see docs/PERFORMANCE.md): ≥ 60 FPS, < 400 draw calls, < 500k triangles for the whole island.
 4. If FPS drops, record a performance trace with Chrome DevTools MCP and find the slow function
    before changing code.
 
@@ -138,5 +157,5 @@ src/engine/   renderer, game loop, input, debug overlay
 src/world/    coords, blocks, chunk, terrain, mesher(.worker), raycast, world (edits + chunk manager)
 src/player/   controller, physics, hotbar
 src/scene/    environment (sky, ocean, clouds, lights), props, fire, lowpoly helpers
-src/agents/   agent entity, action executor, pathfinding (uses world + player/physics)
+src/agents/   AgentBody (shared body/abilities), species models, cast, brains (wander → LLM), later executor/pathfinding
 ```

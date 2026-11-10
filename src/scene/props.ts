@@ -58,10 +58,50 @@ function boulderGeometry(seed: number): THREE.BufferGeometry {
   return merge([painted(g, 0xaab3bf, 0.1)]);
 }
 
+function mushroomGeometry(): THREE.BufferGeometry {
+  const stem = new THREE.CylinderGeometry(0.12, 0.16, 0.45, 6);
+  stem.translate(0, 0.225, 0);
+  const cap = new THREE.SphereGeometry(0.34, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+  cap.scale(1, 0.75, 1);
+  cap.translate(0, 0.42, 0);
+  const dots = [0, 1, 2, 3].map((i) => {
+    const d = new THREE.IcosahedronGeometry(0.055, 0);
+    const a = i * 1.7;
+    d.translate(Math.cos(a) * 0.2, 0.6 - (i % 2) * 0.05, Math.sin(a) * 0.2);
+    return painted(d, 0xffffff, 0);
+  });
+  return merge([painted(stem, 0xfff1dc), painted(cap, 0xff5a4f, 0.1), ...dots]);
+}
+
+function flowerGeometry(petal: number): THREE.BufferGeometry {
+  const stem = new THREE.CylinderGeometry(0.025, 0.03, 0.42, 4);
+  stem.translate(0, 0.21, 0);
+  const leaf = new THREE.ConeGeometry(0.08, 0.22, 3);
+  leaf.rotateZ(-1.0);
+  leaf.translate(0.08, 0.14, 0);
+  const parts = [painted(stem, 0x4caf3a), painted(leaf, 0x5cc443)];
+  for (let i = 0; i < 5; i++) {
+    const p = new THREE.OctahedronGeometry(0.075, 0); // 8 tris per petal keeps hundreds of flowers cheap
+    const a = (i / 5) * Math.PI * 2;
+    p.scale(1.3, 0.5, 1);
+    p.translate(Math.cos(a) * 0.09, 0.44, Math.sin(a) * 0.09);
+    parts.push(painted(p, petal, 0.08));
+  }
+  const center = new THREE.IcosahedronGeometry(0.055, 0);
+  center.translate(0, 0.46, 0);
+  parts.push(painted(center, 0xffc928, 0.05));
+  return merge(parts);
+}
+
 const builders: Record<PropKind, () => THREE.BufferGeometry> = {
   palm: palmGeometry,
   bush: bushGeometry,
   boulder: () => boulderGeometry(3),
+  mushroom: mushroomGeometry,
+  flower_red: () => flowerGeometry(0xff5a6a),
+  flower_yellow: () => flowerGeometry(0xfff07a),
+  flower_pink: () => flowerGeometry(0xff9ad5),
+  flower_white: () => flowerGeometry(0xffffff),
 };
 
 export function createProps(props: readonly Prop[]): THREE.Group {

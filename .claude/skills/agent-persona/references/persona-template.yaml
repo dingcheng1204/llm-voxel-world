@@ -6,8 +6,8 @@ brain:
   model: anthropic/<model-id>   # AI Gateway model id — verify the current id before use
   think_model: null            # optional cheaper model for routine ticks
 appearance:
-  color: "#888888"
-  hat: none                    # none | cap | straw | antenna
+  species: cat                 # cat | fox | wolf | snake — appearance only, abilities are identical
+  tag_color: "#888888"         # name-tag dot colour
 core_trait: curiosity
 personality: >
   Describe in 2–4 sentences HOW this character is curious. What do they notice first?

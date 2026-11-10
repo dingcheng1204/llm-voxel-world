@@ -28,7 +28,7 @@ export class Environment {
 
     // Gradient sky dome (follows the camera, never fogged).
     this.sky = new THREE.Mesh(
-      new THREE.SphereGeometry(450, 24, 12),
+      new THREE.SphereGeometry(700, 24, 12),
       new THREE.ShaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
@@ -52,6 +52,13 @@ export class Environment {
     this.group.add(this.sky);
 
     this.group.add(this.createOcean());
+    // Endless sandy sea floor under the ocean, level with the deepest seabed blocks, so the edge
+    // of the finite world never shows through the water.
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1100), new THREE.MeshBasicMaterial({ color: 0xf6dc96 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = 1.98;
+    floor.name = 'seafloor';
+    this.group.add(floor);
     this.clouds = this.createClouds();
     this.group.add(this.clouds);
   }
@@ -62,7 +69,7 @@ export class Environment {
     for (let i = 0; i < this.cloudData.length; i++) {
       const c = this.cloudData[i]!;
       let x = c.x + time * 1.2;
-      x = ((((x + 160) % 320) + 320) % 320) - 160; // wrap around the island
+      x = ((((x + 220) % 440) + 440) % 440) - 220; // wrap around the island
       this.q.setFromAxisAngle(this.v.set(0, 1, 0), c.r);
       this.clouds.setMatrixAt(i, this.m.compose(this.v.set(x, c.y, c.z), this.q, this.sc.setScalar(c.s)));
     }
@@ -70,7 +77,7 @@ export class Environment {
   }
 
   private createOcean(): THREE.Mesh {
-    const geo = new THREE.PlaneGeometry(900, 900, 110, 110);
+    const geo = new THREE.PlaneGeometry(1100, 1100, 130, 130);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshLambertMaterial({
       color: 0x2fa7ee,
@@ -109,12 +116,12 @@ export class Environment {
         return painted(g, 0xffffff, 0.14);
       }),
     );
-    const count = 12;
+    const count = 18;
     // Unlit: clouds stay bright white from any angle; per-face variation in the vertex colours keeps the facets.
     const mesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }), count);
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + i * 0.7;
-      const r = 70 + ((i * 37) % 60);
+      const r = 90 + ((i * 37) % 90);
       this.cloudData.push({ x: Math.cos(a) * r, y: 62 + ((i * 13) % 14), z: Math.sin(a) * r, s: 0.9 + ((i * 7) % 5) * 0.15, r: a });
     }
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

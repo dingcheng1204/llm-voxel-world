@@ -29,14 +29,17 @@
 - [ ] 編輯存 localStorage，重新整理後還在
 - [ ] Supabase：建立專案表（BLUEPRINT §5 的 SQL 做成 migration）
 - [ ] 編輯同步到 `world_edits`
-- [ ] Web Worker greedy meshing
+- [x] Web Worker greedy meshing（三角形 −84%）
 - [ ] 環境光遮蔽（per-vertex AO）
 - [ ] 日夜循環（1 遊戲日 = 20 分鐘），天空顏色、太陽光
-- [ ] 透明網格：水、玻璃、樹葉
+- [x] 水網格（湖、井）；海用動畫平面
+- [x] 島嶼擴大到 192×288，加入雪山、火山、森林、花草原、湖與更多素材
 - [ ] ✅ 驗收：render distance 8 仍 ≥ 60 FPS；draw calls < 200
 
 ## 階段 3 — 角色身體（還沒接 LLM）
-- [ ] `agents/Agent.ts`：用和玩家相同的物理；簡單方塊人模型 + 名牌
+- [x] `agents/AgentBody.ts`：共用身體；4 種可愛動物模型（貓/狐狸/狼/蛇）+ 名牌
+- [x] 暫代大腦 `WanderBrain`（在廣場閒晃），之後換成 LLM
+- [ ] 改用和玩家相同的 AABB 物理
 - [ ] `agents/actions.ts`：zod schema（walk_to, look_at, mine, place, follow, name_place, wait, idle）
 - [ ] `agents/pathfinding.ts`：3D A*（可走 = 腳下實心、身體 2 格空、可跳 1 格）
 - [ ] `agents/executor.ts`：動作佇列、成功/失敗回報

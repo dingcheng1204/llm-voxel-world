@@ -27,8 +27,8 @@ export function createRenderer(container: HTMLElement, cfg: GameConfig): RenderC
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  // Small island world: fog only softens the far ocean into the horizon.
-  scene.fog = new THREE.Fog(SKY, 140, 420);
+  // Island world: fog only softens the far ocean into the horizon.
+  scene.fog = new THREE.Fog(SKY, 220, 600);
 
   const camera = new THREE.PerspectiveCamera(cfg.fov, 1, 0.1, 1000);
 

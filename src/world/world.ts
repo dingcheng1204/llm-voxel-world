@@ -3,7 +3,7 @@ import { Chunk } from './chunk';
 import { CHUNK_X, CHUNK_Y, CHUNK_Z, PAD_VOLUME, chunkKey, localIndex, paddedIndex, type ChunkKey } from './coords';
 import type { ChunkMeshData, MeshPart } from './mesher';
 import { MeshWorkerPool } from './meshWorkerPool';
-import { B } from './blocks';
+import { B, IS_SOLID } from './blocks';
 import { ISLAND_CHUNKS, TerrainGenerator } from './terrain';
 
 interface ChunkEntry {
@@ -33,6 +33,23 @@ export interface BlockPos {
 
 // One material per pass, shared by every chunk → minimal state changes per draw call.
 const opaqueMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
+// Per-block brightness variation (±7 %) computed per block cell on the GPU, so greedy-merged
+// quads still look like individually hand-painted blocks.
+opaqueMaterial.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vCellPos;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCellPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vCellPos;')
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      vec3 faceN = normalize(cross(dFdx(vCellPos), dFdy(vCellPos))); // points towards the viewer
+      vec3 cell = floor(vCellPos - faceN * 0.5);
+      float cellHash = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+      diffuseColor.rgb *= 0.93 + 0.14 * cellHash;`,
+    );
+};
 const waterMaterial = new THREE.MeshBasicMaterial({
   vertexColors: true,
   transparent: true,
@@ -80,7 +97,9 @@ export class World {
   get stats() {
     let meshed = 0;
     for (const e of this.chunks.values()) if (e.opaque || e.water) meshed++;
-    return { loaded: this.chunks.size, meshed, meshQueue: this.pool.pending, workers: this.pool.size };
+    const b = this.bounds;
+    const total = (b.maxX - b.minX + 1) * (b.maxZ - b.minZ + 1);
+    return { loaded: this.chunks.size, meshed, total, meshQueue: this.pool.pending, workers: this.pool.size };
   }
 
   heightAt(x: number, z: number): number {
@@ -141,6 +160,17 @@ export class World {
     const e = this.chunks.get(chunkKey(Math.floor(x / CHUNK_X), Math.floor(z / CHUNK_Z)));
     if (!e) return 0;
     return e.chunk.get(((x % CHUNK_X) + CHUNK_X) % CHUNK_X, y, ((z % CHUNK_Z) + CHUNK_Z) % CHUNK_Z);
+  }
+
+  /** y of the first free cell above the highest solid block at (x, z), or the terrain height if not loaded. */
+  groundY(x: number, z: number): number {
+    const bx = Math.floor(x);
+    const bz = Math.floor(z);
+    if (!this.chunks.has(chunkKey(Math.floor(bx / CHUNK_X), Math.floor(bz / CHUNK_Z)))) {
+      return this.terrain.heightAt(bx, bz) + 1;
+    }
+    for (let y = CHUNK_Y - 1; y >= 0; y--) if (IS_SOLID[this.getBlock(bx, y, bz)] === 1) return y + 1;
+    return 0;
   }
 
   dispose(): void {

@@ -9,7 +9,7 @@ export interface MeshRequest {
 }
 
 self.onmessage = (e: MessageEvent<MeshRequest>) => {
-  const { jobId, padded, cx, cz } = e.data;
-  const data = meshChunk(padded, cx, cz);
+  const { jobId, padded } = e.data;
+  const data = meshChunk(padded);
   (self as unknown as DedicatedWorkerGlobalScope).postMessage({ jobId, data }, transferables(data));
 };

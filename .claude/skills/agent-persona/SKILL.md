@@ -9,10 +9,16 @@ Every character is **one persona file + one brain (LLM model) + one body (an ent
 The body is dumb: it only executes actions. Everything the character "decides" comes from the brain
 through the action contract below.
 
+**Species is appearance only.** Characters are cute low-poly animals (`cat`, `fox`, `wolf`, `snake`, more later),
+but every species uses the same `AgentBody` (`src/agents/AgentBody.ts`): same speed, physics, perception and
+action set. Never give a species extra abilities or special-case behaviour — the point of the game is that the
+*brains* (different LLMs) are the only difference. Models live in `src/agents/species.ts`; the cast in `src/agents/cast.ts`.
+Up to **4 characters run at once**.
+
 ## 1. Persona files
 
 Location: `agents/personas/<id>.yaml`. One file per character. Template: `references/persona-template.yaml`.
-Starting cast: `references/starting-cast.md` (Claude, Gemini, ChatGPT first; Grok, Meta Llama, Qwen later).
+Starting cast: `references/starting-cast.md` (cat/Claude, fox/Gemini, wolf/ChatGPT, snake/4th brain).
 
 Required fields:
 
@@ -23,7 +29,7 @@ brain:
   provider: anthropic        # anthropic | google | openai | xai | meta | alibaba
   model: anthropic/<model-id>   # AI Gateway model string; check current names before using
   think_model: null          # optional cheaper model for routine ticks
-appearance: { color: "#d97757", hat: none }
+appearance: { species: cat, tag_color: "#d97757" }   # species: cat | fox | wolf | snake — looks only
 core_trait: curiosity        # every character shares this
 personality: >               # 2–4 sentences: how THIS character's curiosity shows up
 speech_style: >              # tone, sentence length, verbal habits
@@ -135,3 +141,5 @@ feelings, guesses and questions are encouraged.
 2. Create `agents/personas/<id>.yaml` from the template.
 3. Run `npm run agent:dry-run -- <id>` (sends a fixed perception, checks the JSON contract) before
    spawning it in the world.
+4. A new species = a new model function in `species.ts` returning `CharacterModel` (`root` + `animate(time, speed)`),
+   built from low-poly primitives with `scene/lowpoly.ts` helpers, front facing +Z, about 1 block tall. No new abilities.

@@ -1,13 +1,15 @@
 # LLM Voxel World
 
-瀏覽器裡一座可愛 low-poly 風格的小方塊島（類 Minecraft），住著幾個由不同 LLM 驅動、對世界充滿好奇的角色。他們會探索、聊天、一起蓋東西，每天寫日記；之後還會合作寫程式。
+瀏覽器裡一座可愛 low-poly 風格的方塊島（192×288 格，類 Minecraft），住著 4 隻由不同 LLM 驅動、對世界充滿好奇的小動物。他們會探索、聊天、一起蓋東西，每天寫日記；之後還會合作寫程式。
 
-| 角色 | 大腦 | 好奇的方式 |
-|---|---|---|
-| Clio | Claude | 博物學家：觀察、問「為什麼」 |
-| Gem | Gemini | 探險家：找新地方、幫地點取名 |
-| Pip | ChatGPT | 工匠：動手做實驗、蓋東西 |
-| 之後 | Grok · Meta Llama · Qwen | 實驗家 · 說書人 · 找規律的人 |
+| 角色 | 外觀 | 大腦 | 好奇的方式 |
+|---|---|---|---|
+| Clio | 貓 | Claude | 博物學家：觀察、問「為什麼」 |
+| Gem | 狐狸 | Gemini | 探險家：找新地方、幫地點取名 |
+| Pip | 狼 | ChatGPT | 工匠：動手做實驗、蓋東西 |
+| Rook | 蛇 | Grok（可換 Meta Llama / Qwen） | 實驗家：用打破規則來測試規則 |
+
+外觀只是外觀——4 個角色能力完全一樣，差別只在操控的 LLM。
 
 ## 文件
 - [docs/BLUEPRINT.md](docs/BLUEPRINT.md) — 架構、資料模型、API、AI 角色設計、風險
@@ -33,7 +35,7 @@ npm run dev        # http://localhost:5173 ，按 F3 開關效能面板
 npm run check      # typecheck + lint + test + build
 ```
 
-URL 參數：`?pr=1` 解析度上限、`?aa=1` 反鋸齒、`?seed=42` 世界種子；展示鏡頭用 `?orbit=0` 停止旋轉、`?dist=` `?h=` `?angle=` 調整視角。效能設計見 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
+URL 參數：`?pr=1` 解析度上限、`?aa=1` 反鋸齒、`?seed=42` 世界種子；展示鏡頭用 `?view=overview` 看全島、`?lineup=1` 讓 4 個角色排排站、`?orbit=0` 停止旋轉、`?dist=` `?h=` `?angle=` 調整視角。效能設計見 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
 
 目前進度：階段 0 完成，階段 1 的地形與 chunk 管理已完成。下一步在 repo 目錄開 Claude Code：
 

@@ -54,3 +54,37 @@ describe('spiral', () => {
     expect(s[0]).toEqual([0, 0]);
   });
 });
+
+describe('island areas', () => {
+  const t = new TerrainGenerator(20261110);
+  const blockAt = (x: number, y: number, z: number) => {
+    const c = t.generate(Math.floor(x / 16), Math.floor(z / 16));
+    return c.get(((x % 16) + 16) % 16, y, ((z % 16) + 16) % 16);
+  };
+
+  it('is 192 × 288 blocks', () => {
+    expect((ISLAND_CHUNKS.maxX - ISLAND_CHUNKS.minX + 1) * 16).toBe(192);
+    expect((ISLAND_CHUNKS.maxZ - ISLAND_CHUNKS.minZ + 1) * 16).toBe(288);
+  });
+
+  it('has a lake with water blocks above sea level', () => {
+    const { x, z } = t.lake;
+    expect(t.biomeAt(x, z)).toBe('lake');
+    expect(blockAt(x, SEA_LEVEL + 2, z)).toBe(B.water);
+  });
+
+  it('has snow on the big peak and lava in the volcano crater', () => {
+    const snow = t.peaks.find((p) => p.kind === 'snow')!;
+    const top = t.column(snow.x, snow.z).top;
+    expect([B.snow, B.ice]).toContain(top);
+    const v = t.peaks.find((p) => p.kind === 'volcano')!;
+    expect(t.column(v.x, v.z).top).toBe(B.lava);
+  });
+
+  it('gives spawn points on dry land around the plaza', () => {
+    for (const p of t.spawnPoints(4)) {
+      expect(p.y).toBeGreaterThan(SEA_LEVEL);
+      expect(Math.hypot(p.x - t.plaza.x, p.z - t.plaza.z)).toBeLessThan(t.plaza.r);
+    }
+  });
+});
