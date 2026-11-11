@@ -34,7 +34,7 @@ describe('AgentSync', () => {
   it('drives when granted the lease, uploads snapshots, and releases when hidden', async () => {
     let visible = true;
     const { sim, sync, sent } = setup(() => ok({ driver: visible, state: null }));
-    (sync as unknown as { visible: () => boolean }).visible = () => visible;
+    (sync as unknown as { active: () => boolean }).active = () => visible;
     await sync.beat();
     expect(sync.role).toBe('driver');
     expect(sim.agent.brain).toBe(driverBrain);

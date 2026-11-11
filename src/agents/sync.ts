@@ -5,7 +5,9 @@
 //     and uploads a snapshot each beat;
 //   - "mirror": someone else drives (another tab, or the once-a-minute server tick) → the character
 //     walks to the latest saved position and shows the saved thought/speech bubbles.
-// A hidden tab releases the lease (its game loop is paused), so the server tick takes over.
+// A tab whose game loop isn't running (hidden, minimised, paused) releases the lease, so the server
+// tick takes over — page visibility alone isn't enough (some embedded browsers pause rendering while
+// still reporting "visible").
 // Without the API (local `npm run dev`) sync turns itself off and the character runs locally as before.
 
 import type { Agent } from './Agent';
@@ -54,7 +56,8 @@ export class AgentSync {
     readonly clientId = newClientId(),
     private readonly endpoint = '/api/agent/state',
     private readonly fetchFn: typeof fetch = (...a) => fetch(...a),
-    private readonly visible: () => boolean = () => globalThis.document?.visibilityState !== 'hidden',
+    /** Is this tab actually simulating right now? (main.ts: visible AND the game loop ticked recently) */
+    private readonly active: () => boolean = () => globalThis.document?.visibilityState !== 'hidden',
   ) {
     this.mirrorBrain = new MirrorBrain(agent);
     // Don't think until we know where the character really is.
@@ -81,7 +84,7 @@ export class AgentSync {
   async beat(): Promise<void> {
     if (this.role === 'local' || this.inFlight) return;
     this.inFlight = true;
-    const visible = this.visible();
+    const visible = this.active();
     try {
       const res = await this.fetchFn(this.endpoint, {
         method: 'POST',

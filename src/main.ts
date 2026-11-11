@@ -94,12 +94,15 @@ const agents: Agent[] = CAST.map((m, i) => {
 });
 // Server-run characters are shared by everyone and keep living when nobody watches: the visible tab
 // holding the lease drives (LLM every ~6 s); other tabs mirror; the server ticks once a minute otherwise.
+// Only a tab whose game loop is really running may drive (see agents/sync.ts).
+let lastUpdateAt = 0;
+const simulating = () => document.visibilityState !== 'hidden' && performance.now() - lastUpdateAt < 2000;
 const syncs = new Map<string, AgentSync>();
 const llmBrains = new Map<string, LlmBrain>();
 for (const a of agents) {
   if (!(a.brain instanceof LlmBrain)) continue;
   const brain = a.brain;
-  const sync = new AgentSync(a, landmarks, brain);
+  const sync = new AgentSync(a, landmarks, brain, undefined, undefined, undefined, simulating);
   brain.clientId = sync.clientId;
   brain.onLostLease = () => sync.lostLease();
   syncs.set(a.id, sync);
@@ -178,6 +181,7 @@ const loop = new GameLoop(
       orbit(t, next);
       player?.tick(dt);
       simTime += dt;
+      lastUpdateAt = performance.now();
       if (!lineup) for (const a of agents) a.tick(dt, simTime);
     },
     render(alpha, frameDt) {
