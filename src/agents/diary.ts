@@ -20,6 +20,18 @@ export interface DiaryInput {
   mind?: unknown;
 }
 
+/** Characters who used to live on the island (removed from the cast). Their names are scrubbed from minds. */
+export const DEPARTED = ['rook', 'pip'];
+const departedRe = new RegExp(DEPARTED.join('|'), 'i');
+
+/** Drop sentences that mention a character who left (weaker models ignore the prompt rule). */
+export function scrubDeparted(text: string): string {
+  return (text.match(/[^。！？!?]+[。！？!?]?/g) ?? [])
+    .filter((s) => !departedRe.test(s))
+    .join('')
+    .trim();
+}
+
 export const DIARY_HEADINGS = [
   '今天做了什麼',
   '今天發現的事',
@@ -205,12 +217,14 @@ export function parseDiaryReply(raw: unknown, day: number, date: string): DiaryR
   return {
     ok: true,
     diary: `# 第 ${day} 天 · ${date}\n\n${body}\n`,
-    memory: r.data.memory.trim().slice(0, 200),
+    memory: (scrubDeparted(r.data.memory) || r.data.memory.trim()).slice(0, 200),
     mind: m.success
       ? {
-          knowledge: [...new Set(m.data.knowledge.map((k) => k.trim()).filter(Boolean))],
-          interests: m.data.interests.map((i) => i.trim()).filter(Boolean),
-          goals: m.data.goals,
+          knowledge: [
+            ...new Set(m.data.knowledge.map((k) => k.trim()).filter((k) => k && !departedRe.test(k))),
+          ],
+          interests: m.data.interests.map((i) => i.trim()).filter((i) => i && !departedRe.test(i)),
+          goals: m.data.goals.filter((g) => !departedRe.test(g.goal)),
         }
       : null,
     ...(m.success

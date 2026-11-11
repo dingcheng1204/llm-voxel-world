@@ -190,3 +190,34 @@ describe('nightly mind update', () => {
     expect(calls.some((c) => c.url.endsWith('/rpc/agent_save_mind'))).toBe(false);
   });
 });
+
+describe('characters who left the island', () => {
+  it('are scrubbed from the mind and the memory line', async () => {
+    const { parseDiaryReply, scrubDeparted } = await import('../../src/agents/diary');
+    expect(scrubDeparted('今天去了森林！明天一定要找到 Rook。也想爬山。')).toBe('今天去了森林！也想爬山。');
+    const r = parseDiaryReply(
+      {
+        diary: DIARY_MD,
+        memory: '我和 Clio 還沒找到 Rook。明天要爬上山頂！',
+        mind: {
+          knowledge: ['rook 會躲在樹後', '森林在西邊'],
+          interests: ['尋找 Rook', '探索森林'],
+          goals: [
+            { goal: '找到 Rook', status: 'in_progress' },
+            { goal: '爬上山頂', status: 'new' },
+          ],
+        },
+      },
+      1,
+      '2026-11-11',
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.memory).toBe('明天要爬上山頂！');
+    expect(r.mind).toEqual({
+      knowledge: ['森林在西邊'],
+      interests: ['探索森林'],
+      goals: [{ goal: '爬上山頂', status: 'new' }],
+    });
+  });
+});
