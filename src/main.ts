@@ -78,6 +78,7 @@ const agentCtx = {
     },
     others: () => agents.map((a) => ({ id: a.id, pos: a.body.pos, doing: a.executor.doing })),
     now: 0,
+    areaAt: (x: number, z: number) => world.terrain.biomeAt(x, z),
   },
 };
 // Brains: Clio (cat) thinks with an LLM via /api/agent/think (MiniMax M3.1 Flash; the server enforces a

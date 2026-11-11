@@ -13,7 +13,15 @@ const BLOCK_NAMES =
   'grass, dirt, stone, rock, sand, gravel, clay, snow, ice, log, leaves, planks, brick, mossy_stone, crystal, glass, ' +
   'water, lava, fire, toy_red, toy_orange, toy_yellow, toy_blue, flower_grass';
 
-export function systemPrompt(p: Persona, others: string[]): string {
+/** What the character remembers (formatted by memory.ts). Empty strings are fine. */
+export interface PromptMemory {
+  /** One line per recent diary, newest first — stable through the day (system prompt, cache-friendly). */
+  diaries: string;
+  /** The last few thinks, oldest first (user prompt). */
+  recent: string;
+}
+
+export function systemPrompt(p: Persona, others: string[], memory?: PromptMemory): string {
   return `You are ${p.displayName}, a small ${p.species} living on a cute island made of 1-meter blocks.
 
 ## Who you are
@@ -33,6 +41,9 @@ You are kind and cooperative. You are a character in this world — never talk a
 - There is day and night. Others live here too: ${others.join(', ') || 'nobody yet'}. A human player may visit.
 - You only know what you perceive and remember. Coordinates are [x, y, z]; y is up. North is -z, east is +x.
 
+## What you remember from earlier days
+${memory?.diaries || '(Nothing yet — this is your first day here.)'}
+
 ## How to answer
 Reply with ONE JSON object and nothing else (no markdown):
 {"thought": "1-2 short sentences of private reasoning", "say": "something you say out loud, or null", "actions": [...]}
@@ -50,11 +61,14 @@ Reply with ONE JSON object and nothing else (no markdown):
 - Use positions from "nearest", "landmarks", "nearby_agents" and "looking_at". To mine something far away,
   walk_to it first, then mine it in a later turn.
 - If "last_action_result" says an action failed, read the reason and choose something different.
-- Vary what you do: explore new areas, investigate interesting blocks, visit others, name nice places.`;
+- Vary what you do: explore new areas, investigate interesting blocks, visit others, name nice places.
+- Use your memory: don't redo what you just did, follow up on plans and questions from earlier days, and if you
+  have stayed in the same small area for a while, go somewhere new.`;
 }
 
-export function userPrompt(perception: Perception, retryError?: string): string {
-  const base = `Your senses right now:\n${JSON.stringify(perception)}\n\nWhat do you do next? Answer with the JSON object only.`;
+export function userPrompt(perception: Perception, retryError?: string, recent = ''): string {
+  const memory = recent ? `What you did recently (oldest first):\n${recent}\n\n` : '';
+  const base = `${memory}Your senses right now:\n${JSON.stringify(perception)}\n\nWhat do you do next? Answer with the JSON object only.`;
   return retryError
     ? `${base}\n\nYour previous answer was invalid: ${retryError}. Fix it and answer with valid JSON only.`
     : base;
@@ -65,9 +79,10 @@ export function buildMessages(
   others: string[],
   perception: Perception,
   retryError?: string,
+  memory?: PromptMemory,
 ): ChatMessage[] {
   return [
-    { role: 'system', content: systemPrompt(persona, others) },
-    { role: 'user', content: userPrompt(perception, retryError) },
+    { role: 'system', content: systemPrompt(persona, others, memory) },
+    { role: 'user', content: userPrompt(perception, retryError, memory?.recent) },
   ];
 }

@@ -15,7 +15,14 @@ export const LANDMARK_RADIUS = 96;
 
 export interface Perception {
   time: { day: number; clock: string; phase: 'night' | 'dawn' | 'day' | 'dusk' };
-  self: { id: string; pos: [number, number, number]; facing: string; inventory: Record<string, number> };
+  self: {
+    id: string;
+    pos: [number, number, number];
+    /** Island area under the character (beach, plaza, forest, meadow, lake, mountain, volcano, grass). */
+    area?: string;
+    facing: string;
+    inventory: Record<string, number>;
+  };
   looking_at: { block: string; pos: [number, number, number]; dist: number } | null;
   /** Counts of visible (air-exposed) blocks within 8 blocks. */
   nearby_blocks: Record<string, number>;
@@ -35,6 +42,8 @@ export interface PerceiveContext {
   others(): { id: string; pos: THREE.Vector3; doing: string }[];
   /** Sim time (s) — lines heard since `lastHeard` are reported. */
   now: number;
+  /** Island area name at (x, z) — `world.terrain.biomeAt` in the game and on the server. */
+  areaAt?(x: number, z: number): string;
 }
 
 /** Blocks not worth reporting (everywhere, or invisible). */
@@ -119,7 +128,13 @@ export function perceive(
 
   return {
     time: { day: ctx.clock.day, clock: ctx.clock.clock, phase: phaseOf(ctx.clock.t) },
-    self: { id: agent.id, pos, facing: compass(agent.heading), inventory: Object.fromEntries(inventory) },
+    self: {
+      id: agent.id,
+      pos,
+      ...(ctx.areaAt ? { area: ctx.areaAt(pos[0], pos[2]) } : {}),
+      facing: compass(agent.heading),
+      inventory: Object.fromEntries(inventory),
+    },
     looking_at: hit ? { block: BLOCKS[hit.id]!.name, pos: hit.block, dist: r1(hit.distance) } : null,
     nearby_blocks: counts,
     nearest,

@@ -22,7 +22,7 @@ function backend(opts: { driver?: string | null; reply?: string; spent?: number 
       }
       return new Response(JSON.stringify({ driver: mine, state: row.state, updated_at: 'now' }));
     }
-    if (url.endsWith('/rpc/agent_budget'))
+    if (url.endsWith('/rpc/agent_context'))
       return new Response(JSON.stringify({ spent_today: opts.spent ?? 0, calls_last_minute: 0 }));
     if (url.endsWith('/rpc/agent_log_think')) return new Response('');
     if (url.includes('/rest/v1/world_edits')) return new Response('[]');

@@ -97,6 +97,7 @@ export function createSim(input: SimInput): Sim {
       clock,
       others: () => [],
       now: 0,
+      areaAt: (x, z) => world.terrain.biomeAt(x, z),
     },
   };
 

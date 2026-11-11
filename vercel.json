@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/**/*.ts": { "maxDuration": 30 }
+    "api/**/*.ts": { "maxDuration": 30 },
+    "api/agent/diary.ts": { "maxDuration": 60 }
   }
 }

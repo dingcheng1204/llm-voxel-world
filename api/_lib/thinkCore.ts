@@ -8,7 +8,14 @@
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../../src/config/supabase.js';
 import { PERSONAS } from '../../src/agents/personas.js';
-import { buildMessages } from '../../src/agents/prompt.js';
+import { buildMessages, type ChatMessage } from '../../src/agents/prompt.js';
+import {
+  formatDiaries,
+  formatRecent,
+  RECENT_EVENTS,
+  type DiaryMemory,
+  type MemoryEvent,
+} from '../../src/agents/memory.js';
 import type { Perception } from '../../src/agents/perceive.js';
 
 export interface ThinkDeps {
@@ -93,6 +100,61 @@ export function extractJson(text: string): unknown {
   }
 }
 
+export interface Usage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+}
+
+/** USD for one call at the configured per-1M-token prices. */
+export function costOf(cfg: Config, usage: Usage): number {
+  const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
+  return (
+    ((usage.prompt_tokens - cached) * cfg.priceIn +
+      cached * cfg.priceCached +
+      usage.completion_tokens * cfg.priceOut) /
+    1e6
+  );
+}
+
+/** One OpenAI-compatible chat completion (MiniMax). Never throws. */
+export async function chatCompletion(
+  deps: ThinkDeps,
+  cfg: Config,
+  messages: ChatMessage[],
+  maxTokens: number,
+  timeoutMs = 25_000,
+): Promise<{ ok: true; content: string; usage: Usage } | { ok: false; status: number; error: string }> {
+  let usage: Usage = { prompt_tokens: 0, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 0 } };
+  try {
+    const res = await deps.fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages,
+        reasoning_effort: cfg.effort,
+        max_completion_tokens: maxTokens,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: Usage;
+      error?: { message?: string };
+      base_resp?: { status_code?: number; status_msg?: string };
+    };
+    if (!res.ok || data.base_resp?.status_code) {
+      const msg = data.error?.message ?? data.base_resp?.status_msg ?? `status ${res.status}`;
+      return { ok: false, status: 502, error: `model error: ${msg}` };
+    }
+    if (data.usage) usage = { ...usage, ...data.usage };
+    return { ok: true, content: data.choices?.[0]?.message?.content ?? '', usage };
+  } catch (err) {
+    return { ok: false, status: 504, error: `model unreachable: ${(err as Error).name}` };
+  }
+}
+
 export type ThinkResult =
   | {
       ok: true;
@@ -127,9 +189,19 @@ export async function runThink(
     return { ok: false, status: 503, error: 'budget guard not configured (AGENT_DB_SECRET)' };
 
   // --- budget + rate limit (shared by every visitor and the server tick) ---
-  let budget: { spent_today: number; calls_last_minute: number };
+  // One round trip: spend so far, calls in the last minute and what the character remembers.
+  let budget: {
+    spent_today: number;
+    calls_last_minute: number;
+    recent?: MemoryEvent[];
+    diaries?: DiaryMemory[];
+  };
   try {
-    budget = await rpc(deps, cfg, 'agent_budget', { p_secret: cfg.dbSecret });
+    budget = await rpc(deps, cfg, 'agent_context', {
+      p_secret: cfg.dbSecret,
+      p_agent: agentId,
+      p_recent: RECENT_EVENTS,
+    });
   } catch {
     return { ok: false, status: 503, error: 'budget check unavailable' };
   }
@@ -149,45 +221,19 @@ export async function runThink(
   const others = Object.values(PERSONAS)
     .filter((p) => p.id !== agentId)
     .map((p) => `${p.id} (${p.species})`);
-  const messages = buildMessages(persona, others, perception, retryError);
-  let content: string;
-  let usage = { prompt_tokens: 0, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 0 } };
+  const memory = {
+    diaries: formatDiaries(budget.diaries ?? []),
+    recent: formatRecent(budget.recent ?? [], now()),
+  };
+  const messages = buildMessages(persona, others, perception, retryError, memory);
   const started = now();
-  try {
-    const res = await deps.fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages,
-        reasoning_effort: cfg.effort,
-        max_completion_tokens: 1500,
-      }),
-      signal: AbortSignal.timeout(25_000),
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      choices?: { message?: { content?: string } }[];
-      usage?: typeof usage;
-      error?: { message?: string };
-      base_resp?: { status_code?: number; status_msg?: string };
-    };
-    if (!res.ok || data.base_resp?.status_code) {
-      const msg = data.error?.message ?? data.base_resp?.status_msg ?? `status ${res.status}`;
-      return { ok: false, status: 502, error: `model error: ${msg}` };
-    }
-    content = data.choices?.[0]?.message?.content ?? '';
-    if (data.usage) usage = { ...usage, ...data.usage };
-  } catch (err) {
-    return { ok: false, status: 504, error: `model unreachable: ${(err as Error).name}` };
-  }
+  const reply = await chatCompletion(deps, cfg, messages, 1500);
+  if (!reply.ok) return reply;
+  const { content, usage } = reply;
 
   // --- account + log ---
   const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
-  const cost =
-    ((usage.prompt_tokens - cached) * cfg.priceIn +
-      cached * cfg.priceCached +
-      usage.completion_tokens * cfg.priceOut) /
-    1e6;
+  const cost = costOf(cfg, usage);
   const parsed = extractJson(content) as {
     thought?: string;
     say?: string | null;
@@ -208,6 +254,7 @@ export async function runThink(
         actions: parsed?.actions ?? null,
         last_result: perception.last_action_result ?? null,
         pos: perception.self.pos,
+        area: perception.self.area ?? null,
         clock: perception.time?.clock,
         ms: now() - started,
         valid: parsed !== null,

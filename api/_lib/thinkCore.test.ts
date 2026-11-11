@@ -16,15 +16,28 @@ const perception = {
 const env = { MINIMAX_API_KEY_1: 'k', AGENT_DB_SECRET: 's' };
 
 export function fakeFetch(
-  opts: { spent?: number; calls?: number; reply?: string; modelStatus?: number; leaseHeld?: boolean } = {},
+  opts: {
+    spent?: number;
+    calls?: number;
+    reply?: string;
+    modelStatus?: number;
+    leaseHeld?: boolean;
+    recent?: unknown[];
+    diaries?: unknown[];
+  } = {},
 ) {
   const calls: { url: string; body: unknown }[] = [];
   const f = (async (url: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ url, body });
-    if (url.endsWith('/rpc/agent_budget')) {
+    if (url.endsWith('/rpc/agent_context')) {
       return new Response(
-        JSON.stringify({ spent_today: opts.spent ?? 0, calls_last_minute: opts.calls ?? 0 }),
+        JSON.stringify({
+          spent_today: opts.spent ?? 0,
+          calls_last_minute: opts.calls ?? 0,
+          recent: opts.recent ?? [],
+          diaries: opts.diaries ?? [],
+        }),
       );
     }
     if (url.endsWith('/rpc/agent_log_think')) return new Response('');
@@ -174,5 +187,45 @@ describe('handleThink lease', () => {
   it('requires a clientId', async () => {
     const { f } = fakeFetch();
     expect((await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env })).status).toBe(400);
+  });
+});
+
+describe('memory in the prompt', () => {
+  it('includes recent thinks (with outcomes) and diary one-liners', async () => {
+    const now = Date.now();
+    const { f, calls } = fakeFetch({
+      recent: [
+        {
+          at: new Date(now - 60_000).toISOString(),
+          thought: '看看藍色方塊',
+          say: null,
+          actions: [{ type: 'mine', target: [3, 23, 29] }],
+          last_result: null,
+          pos: [4, 23, 28],
+          area: 'plaza',
+        },
+        {
+          at: new Date(now - 120_000).toISOString(),
+          thought: '走向玩具',
+          say: '好可愛',
+          actions: [{ type: 'walk_to', target: [3, 23, 29] }],
+          last_result: { action: 'wait', ok: true },
+          pos: [5, 23, 26],
+          area: 'plaza',
+        },
+      ],
+      diaries: [{ date: '2026-11-10', day: 1, summary: '第一次來到廣場，對玩具方塊很好奇。' }],
+    });
+    await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), { fetch: f, env });
+    const body = calls.find((c) => c.url.endsWith('/chat/completions'))!.body as {
+      messages: { role: string; content: string }[];
+    };
+    const [sys, user] = body.messages;
+    expect(sys!.content).toContain('Day 1 (2026-11-10): 第一次來到廣場');
+    expect(user!.content).toContain('What you did recently');
+    // oldest first; the walk's outcome comes from the next think's last_result
+    expect(user!.content.indexOf('走向玩具')).toBeLessThan(user!.content.indexOf('看看藍色方塊'));
+    expect(user!.content).toContain('walk_to [3,23,29]');
+    expect(user!.content).toContain('(plaza)');
   });
 });

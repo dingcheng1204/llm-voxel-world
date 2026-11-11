@@ -1380,6 +1380,7 @@ function perceive(agent, inventory, lastResult, lastHeard, ctx) {
 		self: {
 			id: agent.id,
 			pos,
+			...ctx.areaAt ? { area: ctx.areaAt(pos[0], pos[2]) } : {},
 			facing: compass(agent.heading),
 			inventory: Object.fromEntries(inventory)
 		},
@@ -2655,7 +2656,8 @@ function createSim(input) {
 			chat,
 			clock,
 			others: () => [],
-			now: 0
+			now: 0,
+			areaAt: (x, z) => world.terrain.biomeAt(x, z)
 		}
 	};
 	const slot = Math.max(0, CAST.indexOf(member));
