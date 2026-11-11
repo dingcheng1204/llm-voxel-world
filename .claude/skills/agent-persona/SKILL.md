@@ -144,7 +144,13 @@ run separately in every browser, so their edits stay local (`WorldSave.saveBy`).
   - a conversation ends after **8 lines or 2 minutes** → **60 s `cooldown`** for both, do something else;
   - a pause > 90 s starts a new conversation.
 - Enforced server-side in `runThink`: if the character may not talk, its `say` is dropped (logged as `muted`).
-- The player's chat box (phase 6) will go through the same rules.
+- Lines can be **directed**: a reply may set `"to"` (a character id or a player id like `p-ab12cd`, validated in
+  `runThink`; unknown → everyone). `messages.to_id` stores it; a directed line is always heard by its target, from
+  anywhere (`ChatLog.heard`). The chat window shows `A → B` / `A → 所有人`.
+- **Players** join with a name and an animal (snake / tiger / monkey), talk via `POST /api/chat/say`
+  (validated, rate-limited in `agent_player_say`: 1 line / 2 s, 12 / min; names of characters are reserved).
+  Characters see players in `nearby_agents` (id + `name`) and hear them; a direct line wakes the character up
+  (`Agent.poke()`, at most a third of its think gap). Conversation rules apply to players too.
 
 ## 7. Daily diary
 
