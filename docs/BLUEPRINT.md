@@ -8,7 +8,7 @@
 
 **目標**
 - 單人、瀏覽器內、60 FPS 的方塊世界：可以走、跳、挖、放方塊。
-- 3 個 AI 角色（Claude、Gemini、ChatGPT），之後擴充 Grok、Meta Llama、Qwen。
+- 2 個 AI 角色：Clio（MiniMax M3.1 Flash）、Gem（Gemini 3.1 Flash-Lite 免費方案）。每接上一個新的便宜大腦，才加一個角色（最多 4 個）。
 - 角色間可以對話；玩家也可以跟角色聊天。
 - 每個角色每天寫一篇日記，可在網頁上閱讀。日記同時是角色的長期記憶。
 - 部署在 Vercel，資料放在 Supabase。
@@ -16,7 +16,7 @@
 **美術方向**：可愛 low-poly 島嶼，全島 **192×288 格**，外圍是海。區域：沙灘廣場、海灘、森林、花草原、湖、雪山、火山。
 素材：草、土、沙、石頭、岩石、雪、冰、黏土、礫石、岩漿、磚、青苔石、水晶、木頭、木板、葉子、水、火、彩色玩具方塊。詳見 `voxel-engine` skill §5、§10。
 
-**角色**：4 個可愛 low-poly 動物（貓、狐狸、狼、蛇）同時活動。**物種只是外觀**，能力完全相同，差別只在背後操控的 LLM。
+**角色**：可愛 low-poly 動物（目前貓 Clio、狐狸 Gem；狼、蛇模型已備好）。**物種只是外觀**，能力完全相同，差別只在背後操控的 LLM。
 
 **非目標（至少前 5 階段不做）**
 - 多人連線、生存模式（血量、怪物）、合成系統、無限高度、行動裝置操作。
@@ -26,24 +26,21 @@
 ## 2. 系統架構
 
 ```
-┌──────────────────────── Browser (Vite + TS + Three.js) ────────────────────────┐
-│  engine/   render loop · input · debug overlay (F3)                            │
-│  world/    chunks · terrain(seed) · mesher(worker) · raycast · edits           │
-│  player/   controller · physics(AABB)                                          │
-│  agents/   Agent bodies · ActionExecutor · A* pathfinding · perceive()         │
-│  ui/       hotbar · chat box · thought bubbles · diary reader                  │
-└──────────────┬──────────────────────────────────────────────┬──────────────────┘
-               │ POST /api/agent/think (perception → actions) │ supabase-js (read)
-               ▼                                              ▼
-┌──────── Vercel Functions ────────┐            ┌──────────── Supabase ───────────┐
-│ /api/agent/think   AI SDK        │──write────▶│ agents · events · messages      │
-│ /api/agent/say     log chat      │            │ diaries · world_edits · usage   │
-│ /api/cron/diary    daily diaries │◀──read─────│                                 │
-└──────────┬───────────────────────┘            └─────────────────────────────────┘
-           ▼
-   Vercel AI Gateway（或 OpenRouter）
-   ├─ Anthropic (Claude)   ├─ Google (Gemini)   ├─ OpenAI (ChatGPT)
-   └─ 之後：xAI (Grok) · Meta (Llama) · Alibaba (Qwen)
+┌──────────────── Browser (Vite + TS + Three.js) ────────────────┐   ┌──── /diary（日記閱讀頁）────┐
+│ engine/ world/ player/ scene/   遊戲與渲染                      │   │ 讀公開資料表，30 秒更新     │
+│ agents/  身體、動作、A*、感知、AgentSync（驅動 or 觀看）        │   └──────────────┬──────────────┘
+└───────┬──────────────────────────────────────┬─────────────────┘                  │ read
+        │ /api/agent/think · /api/agent/state  │ world-edits（edge fn）             │
+        ▼                                      ▼                                    ▼
+┌──────────── Vercel Functions ────────────┐   ┌──────────────── Supabase ─────────────────────┐
+│ think   有人在看時，驅動分頁請 LLM 思考   │──▶│ agent_state（位置/背包…＋租約） agent_mind     │
+│ state   心跳：驅動者存狀態、其他人同步   │   │ events · messages · diaries · usage · world_edits│
+│ tick    每分鐘：伺服器無頭模擬所有角色   │◀──│ pg_cron：agent-tick（每分鐘）、agent-diary（23:30）│
+│ diary   每晚：日記＋整理心智             │   └────────────────────────────────────────────────┘
+└──────┬───────────────────┬───────────────┘
+       ▼                   ▼
+  MiniMax M3.1 Flash   Gemini 3.1 Flash-Lite
+  （Clio，M Plan）      （Gem，免費方案）
 ```
 
 **關鍵決定**
@@ -52,10 +49,10 @@
 |---|---|---|
 | 渲染 | 原生 Three.js（不用 R3F） | 遊戲迴圈和 chunk 管理用命令式寫法比較直接、好調效能 |
 | 語言 | TypeScript strict | 動作 JSON、方塊 ID 等契約靠型別守住 |
-| 模擬在哪跑 | 瀏覽器（玩家開著頁面時） | 最簡單；伺服器只負責「思考」和存資料 |
+| 模擬在哪跑 | 有人看：驅動中的分頁；沒人看：伺服器每分鐘無頭模擬（同一套引擎） | 角色 24 小時生活、所有人看到同一個世界；租約保證同時只有一個模擬器 |
 | LLM 呼叫 | 只在 Vercel Function | API key 不進前端；統一記錄用量 |
-| 多家模型 | AI SDK + AI Gateway | 一個介面切換多家，換模型只改設定 |
-| 日記 | Vercel Cron 每天跑 | 玩家沒開頁面也照樣寫（讀 events 表） |
+| 多家模型 | 直接呼叫各家的 OpenAI 相容 API（每個角色一組設定） | 可以用訂閱方案或免費方案的 key，費用可控 |
+| 排程 | Supabase pg_cron（每分鐘 tick、每晚日記） | Vercel 免費方案的 cron 一天只能跑一次 |
 
 > ⚠️ ChatGPT Plus / Claude Pro / Gemini 訂閱**不能**當 API 用，要另外申請 API key 並按用量計費。
 
@@ -195,11 +192,12 @@ Supabase 專案：`llm-voxel-world`（ap-northeast-1 東京）。SQL 在 `supaba
 |---|---|---|
 | `/api/agent/think` | POST | `{agentId, clientId, perception}` → `{raw, cost, …}`；需持有租約；檢查預算、記錄 usage 和 events |
 | `/api/agent/state` | POST | 分頁心跳 `{agentId, clientId, state?, release?}` → `{driver, state}`；驅動者上傳狀態，其他人同步 |
-| `/api/agent/tick` | POST (pg_cron) | 每分鐘一次，header `x-agent-secret`；沒有分頁驅動時，伺服器思考 1 次 + 模擬 60 秒 |
+| `/api/agent/tick` | POST (pg_cron) | 每分鐘一次，header `x-agent-secret`；沒有分頁驅動時，伺服器讓到期的角色思考（Clio 每分鐘、Gem 每 4 分鐘）+ 共同模擬 60 秒 |
+| `/api/agent/diary` | POST (pg_cron) | 每天台北 23:30：每個角色用自己的大腦寫日記，並整理筆記、更新興趣與目標 |
+| `/diary` | 頁面 | 日記閱讀頁（公開讀取 Supabase：diaries、agent_mind、agent_state、messages） |
 | `/api/agent/event` | POST | 批次寫入事件（動作結果、發現、命名地點） |
 | `/api/chat` | POST | 寫入一則 `say` 或玩家訊息 |
 | Supabase Edge Function `world-edits` | GET/POST | 讀寫方塊編輯（已上線；service role 只在伺服器端） |
-| `/api/cron/diary` | GET (cron) | 為每個角色產生當日日記；每天一次（UTC `30 15 * * *` = 台北 23:30；Vercel 免費方案 cron 一天一次即可，或沿用 pg_cron） |
 
 環境變數：見 `.env.example`。
 
@@ -229,9 +227,9 @@ Supabase 專案：`llm-voxel-world`（ap-northeast-1 東京）。SQL 在 `supaba
 | 1 | 方塊世界 MVP | 種子地形、第一人稱、碰撞、挖/放、快捷列，60 FPS |
 | 2 | 世界打磨 | 存檔（localStorage → Supabase）、greedy meshing + worker、日夜循環、水 |
 | 3 | 角色身體（無 LLM） | NPC 實體、動作執行器、A* 尋路、寫死腳本也能跑 |
-| 4 | 第一個大腦 | Claude 接上 `/api/agent/think`，會自己探索、說話、顯示想法泡泡 |
-| 5 | 三人 + 聊天 + 日記 | 加入 Gemini、ChatGPT；角色互聊；每日日記 + 日記閱讀頁 |
-| 6 | 擴充 | 玩家聊天框、Grok / Llama / Qwen、地標系統、成本面板 |
+| 4 | 第一個大腦 | Clio 接 MiniMax、伺服器成本保護、24 小時伺服器模擬 |
+| 5 | 兩人 + 聊天 + 日記 | Gem 接 Gemini；角色互聊（對話規則）；每日日記、記憶、心智 + 日記閱讀頁 |
+| 6 | 擴充 | 玩家聊天框、第 3/4 個角色（新的便宜大腦）、地標系統、成本面板 |
 | 7 | 合作寫程式 | 角色在 Vercel Sandbox 合作寫小程式（例如自動蓋房子的腳本），結果回到世界裡 |
 
 每個階段都要：可以部署到 Vercel 預覽網址、用 Chrome DevTools MCP 截圖驗證、更新 ROADMAP 勾選。

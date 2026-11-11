@@ -13,7 +13,8 @@ through the action contract below.
 but every species uses the same `AgentBody` (`src/agents/AgentBody.ts`): same speed, physics, perception and
 action set. Never give a species extra abilities or special-case behaviour — the point of the game is that the
 *brains* (different LLMs) are the only difference. Models live in `src/agents/species.ts`; the cast in `src/agents/cast.ts`.
-Up to **4 characters run at once**.
+The cast is **one character per LLM brain we actually run** — currently 2 (Clio → MiniMax, Gem → Gemini);
+the engine is budgeted for up to 4.
 
 ## 1. Persona files
 
@@ -133,13 +134,17 @@ run separately in every browser, so their edits stay local (`WorldSave.saveBy`).
   Fails closed without `AGENT_DB_SECRET`. Diary writing will get its own reserved budget (phase 5).
 - Nobody watching → the server tick thinks once per minute (§9).
 
-## 6. Chat rules
+## 6. Chat rules (implemented — `src/agents/chatRules.ts`)
 
-- `say` is heard by everyone within 16 blocks (including the player).
-- A conversation between two characters ends after 8 exchanges or 2 minutes, then both must do something
-  else for at least 60 s (prevents infinite chatter loops).
-- The player can talk to any character from the chat box; player messages always trigger a think.
-- All lines are stored in the `messages` table.
+- `say` is heard by everyone within 16 blocks. Every line goes to `messages` (`agent_log_think`), with
+  `heard_by` = the other characters within 16 blocks; the server tick reloads the last 10 minutes.
+- Conversation state is computed from `messages` on every think and added to the perception as `conversation`:
+  - `waiting_for_reply`: you spoke to someone and they haven't had a chance to answer yet (their think cadence
+    + 30 s, max 3 min) → stay quiet;
+  - a conversation ends after **8 lines or 2 minutes** → **60 s `cooldown`** for both, do something else;
+  - a pause > 90 s starts a new conversation.
+- Enforced server-side in `runThink`: if the character may not talk, its `say` is dropped (logged as `muted`).
+- The player's chat box (phase 6) will go through the same rules.
 
 ## 7. Daily diary
 
