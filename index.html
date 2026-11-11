@@ -217,6 +217,12 @@
         text-align: center;
         box-shadow: 0 12px 40px rgba(30, 60, 90, 0.25);
         max-width: 420px;
+        margin: 0 12px;
+        max-height: calc(100dvh - 24px);
+        overflow-y: auto;
+      }
+      body.touch .play-card {
+        padding: 18px 20px;
       }
       .play-card h1 {
         margin: 0 0 4px;
@@ -244,6 +250,7 @@
         border-radius: 12px;
         padding: 9px 12px;
         width: 100%;
+        box-sizing: border-box;
         margin-top: 4px;
       }
       .join input[type='text']:focus {
@@ -483,11 +490,12 @@
         display: grid;
       }
       @media (max-width: 760px) and (orientation: portrait) {
+        /* Narrow phones: chat on the left, the minimap keeps the right column. */
         body.touch .chat {
-          width: calc(100vw - 20px);
+          width: calc(100vw - 150px);
         }
-        body.touch #minimap {
-          top: calc(62px + env(safe-area-inset-top));
+        body.touch .chat-head {
+          flex-wrap: wrap;
         }
       }
 

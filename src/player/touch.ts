@@ -34,6 +34,15 @@ export function wantsTouch(search = location.search): boolean {
   return matchMedia('(pointer: coarse)').matches;
 }
 
+/** Keep receiving a finger's moves even if it slides off the element (never fatal if the browser refuses). */
+function capture(el: Element, pointerId: number): void {
+  try {
+    el.setPointerCapture(pointerId);
+  } catch {
+    /* pointer no longer active */
+  }
+}
+
 export interface TouchCallbacks {
   onPause(): void;
   onChat(): void;
@@ -95,7 +104,7 @@ export class TouchControls {
       };
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        b.setPointerCapture(e.pointerId);
+        capture(b, e.pointerId);
         press(true);
       });
       const release = () => press(false);
@@ -141,7 +150,7 @@ export class TouchControls {
   private down(e: PointerEvent): void {
     if (e.pointerType === 'mouse' || !this.input.locked) return;
     e.preventDefault();
-    this.canvas.setPointerCapture(e.pointerId);
+    capture(this.canvas, e.pointerId);
     if (this.stickId === null && this.inStickZone(e.clientX, e.clientY)) {
       this.stickId = e.pointerId;
       this.stickOrigin = { x: e.clientX, y: e.clientY };
