@@ -31,7 +31,7 @@ export interface Meter {
 }
 
 const NAMES: Record<string, string> = { clio: 'Clio', gem: 'Gem' };
-const PROVIDERS: Record<string, string> = { minimax: 'MiniMax', google: 'Gemini' };
+const PROVIDERS: Record<string, string> = { minimax: 'MiniMax', gemini: 'Gemini', google: 'Gemini' };
 /** Google's free-tier requests per day for Gemini 3.1 Flash-Lite. */
 const GEMINI_FREE_RPD = 500;
 
@@ -62,7 +62,7 @@ export function formatUsage(u: Usage, now = Date.now()): Meter[] {
       const title = `${name} · ${PROVIDERS[a.provider] ?? a.provider}`;
       if (a.maxPerDay !== null) {
         // Free tier: counted in calls per Pacific day.
-        const limit = a.provider === 'google' ? GEMINI_FREE_RPD : a.maxPerDay;
+        const limit = a.provider === 'gemini' || a.provider === 'google' ? GEMINI_FREE_RPD : a.maxPerDay;
         const resetAt = now + (a.capResetsIn ?? 0) * 1000;
         const used = a.callsPtDay >= a.maxPerDay;
         return {

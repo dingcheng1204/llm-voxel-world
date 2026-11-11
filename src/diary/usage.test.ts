@@ -21,7 +21,7 @@ const base: Usage = {
     },
     {
       id: 'gem',
-      provider: 'google',
+      provider: 'gemini',
       model: 'gemini-3.1-flash-lite',
       enabled: true,
       callsToday: 121,
