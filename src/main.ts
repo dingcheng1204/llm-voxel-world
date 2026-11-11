@@ -35,7 +35,7 @@ import { createModel, PLAYER_SPECIES, type PlayerSpecies } from './agents/specie
 import { createNameTag } from './scene/nameTag';
 import { ChatWindow } from './ui/chat';
 import { Minimap } from './ui/minimap';
-import type { MapMarker } from './ui/islandMap';
+import { isScriptPlace, type MapMarker } from './ui/islandMap';
 
 const cfg = loadConfig();
 const container = document.getElementById('app')!;
@@ -202,13 +202,15 @@ const nameCache = new Map<string, string>();
 // Minimap (top right): you, the characters, other players and the places the characters named.
 const minimap = player
   ? new Minimap(document.body, cfg.seed, () => {
-      const out: MapMarker[] = landmarks.list.map((l) => ({
-        kind: 'place',
-        x: l.pos[0] + 0.5,
-        z: l.pos[2] + 0.5,
-        label: l.name,
-        color: '#3a3550',
-      }));
+      const out: MapMarker[] = landmarks.list
+        .filter((l) => !isScriptPlace(l.name))
+        .map((l) => ({
+          kind: 'place',
+          x: l.pos[0] + 0.5,
+          z: l.pos[2] + 0.5,
+          label: l.name,
+          color: '#3a3550',
+        }));
       for (const a of agents) {
         out.push({
           kind: 'character',

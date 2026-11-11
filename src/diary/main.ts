@@ -3,7 +3,7 @@
 // tables with the publishable key (RLS allows SELECT only).
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../config/supabase';
-import { drawMap, MAP_BOUNDS, renderIslandBase, type MapMarker } from '../ui/islandMap';
+import { drawMap, isScriptPlace, MAP_BOUNDS, renderIslandBase, type MapMarker } from '../ui/islandMap';
 import { escapeHtml, renderDiary } from './markdown';
 import { formatUsage, type Usage } from './usage';
 
@@ -238,7 +238,8 @@ function places(): Place[] {
   const byName = new Map<string, Place>();
   for (const st of data.states.values()) {
     for (const l of st.state.landmarks ?? []) {
-      if (typeof l.name !== 'string' || !Array.isArray(l.pos) || l.pos.length < 3) continue;
+      if (typeof l.name !== 'string' || isScriptPlace(l.name) || !Array.isArray(l.pos) || l.pos.length < 3)
+        continue;
       byName.set(l.name, { name: l.name, x: Number(l.pos[0]) + 0.5, z: Number(l.pos[2]) + 0.5, by: l.by });
     }
   }

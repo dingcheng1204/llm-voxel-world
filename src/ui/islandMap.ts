@@ -103,6 +103,8 @@ export function drawMap(
   o: DrawOptions,
 ): void {
   const s = o.scale;
+  /** Markers shrink on a small map so clustered places stay readable. */
+  const k = s < 1 ? 0.7 : 1;
   ctx.imageSmoothingEnabled = s < 1;
   ctx.clearRect(0, 0, MAP_BOUNDS.width * s, MAP_BOUNDS.height * s);
   ctx.drawImage(base, 0, 0, MAP_BOUNDS.width * s, MAP_BOUNDS.height * s);
@@ -112,17 +114,24 @@ export function drawMap(
   const sorted = [...markers].sort(
     (a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || Number(!!a.highlight) - Number(!!b.highlight),
   );
-  const labels: { text: string; x: number; y: number; color: string; strong: boolean }[] = [];
+  const labels: {
+    text: string;
+    x: number;
+    y: number;
+    color: string;
+    strong: boolean;
+    kind: MapMarker['kind'];
+  }[] = [];
   for (const m of sorted) {
     const [mx, mz] = toMap(m.x, m.z);
     const x = mx * s;
     const y = mz * s;
     ctx.save();
     ctx.translate(x, y);
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = s < 1 ? 1 : 1.5;
     ctx.strokeStyle = '#ffffff';
     if (m.kind === 'place') {
-      const r = m.highlight ? 6 : 3.6;
+      const r = (m.highlight ? 6 : 3.6) * k;
       if (m.highlight) {
         ctx.beginPath();
         ctx.arc(0, 0, 13, 0, Math.PI * 2);
@@ -141,6 +150,7 @@ export function drawMap(
       ctx.stroke();
     } else if (m.kind === 'me') {
       ctx.rotate(m.heading ?? 0);
+      ctx.scale(k + 0.15, k + 0.15);
       ctx.beginPath();
       ctx.moveTo(8, 0);
       ctx.lineTo(-5, -5.5);
@@ -152,7 +162,7 @@ export function drawMap(
       ctx.fill();
       ctx.stroke();
     } else {
-      const r = m.kind === 'character' ? 5 : 4;
+      const r = (m.kind === 'character' ? 5 : 4) * k;
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fillStyle = m.color;
@@ -167,17 +177,40 @@ export function drawMap(
         y,
         color: m.kind === 'place' ? '#3a3550' : m.color,
         strong: !!m.highlight,
+        kind: m.kind,
       });
     }
   }
   ctx.font = font;
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  for (const l of labels) {
+  // Many places sit close together: draw the important labels first (highlighted, you, characters and
+  // players, then places); a label that would overlap tries left, above and below before it is skipped.
+  const rank = (l: (typeof labels)[number]) =>
+    l.strong ? 0 : l.kind === 'me' ? 1 : l.kind === 'place' ? 3 : 2;
+  const placed: [number, number, number, number][] = [];
+  const lh = parseInt(/(\d+)px/.exec(font)?.[1] ?? '12', 10) + 4;
+  const free = (b: [number, number, number, number]) =>
+    !placed.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+  for (const l of [...labels].sort((a, b) => rank(a) - rank(b))) {
+    const w = ctx.measureText(l.text).width + 4;
+    const spots: [number, number][] = [
+      [l.x + 8, l.y],
+      [l.x - 8 - w, l.y],
+      [l.x - w / 2, l.y - lh],
+      [l.x - w / 2, l.y + lh],
+    ];
+    const spot = spots.find(([x, y]) => free([x - 2, y - lh / 2, x + w, y + lh / 2]));
+    if (!spot) continue;
+    const [tx, ty] = spot;
+    placed.push([tx - 2, ty - lh / 2, tx + w, ty + lh / 2]);
     ctx.lineWidth = 3.5;
     ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-    ctx.strokeText(l.text, l.x + 8, l.y);
+    ctx.strokeText(l.text, tx, ty);
     ctx.fillStyle = l.strong ? '#3a3550' : l.color;
-    ctx.fillText(l.text, l.x + 8, l.y);
+    ctx.fillText(l.text, tx, ty);
   }
 }
+
+/** Names the scripted fallback brain gives its home spot ("gem home") — not real place names. */
+export const isScriptPlace = (name: string) => /^[a-z]+ home$/.test(name);
