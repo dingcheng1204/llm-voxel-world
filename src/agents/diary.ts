@@ -124,7 +124,12 @@ export function buildDigest(input: DiaryInput): string {
   return lines.join('\n');
 }
 
-export function diaryMessages(p: Persona, input: DiaryInput, date: string): ChatMessage[] {
+export function diaryMessages(
+  p: Persona,
+  input: DiaryInput,
+  date: string,
+  others: string[] = [],
+): ChatMessage[] {
   const system = `You are ${p.displayName}, a small ${p.species} living on a cute island made of blocks.
 ${p.personality}
 How you speak: ${p.speechStyle}
@@ -138,6 +143,9 @@ Rules:
   If nobody talked with you, say so honestly under "和誰聊了什麼".
 - Feelings, guesses and open questions are welcome. Refer to areas and place names, not raw coordinates.
 - You are a character in this world — never mention being an AI, a model, a log or "events".
+- Who lives on the island: you${others.length ? ` and ${others.join(', ')}` : ''} — nobody else. If the log mentions
+  anyone else, they have left the island: mention that at most briefly, and never make notes, interests or goals
+  about them.
 
 After writing, also tidy up your mind for tomorrow ("mind" in the reply):
 - "knowledge": your notes about the island, at most ${MAX_KNOWLEDGE}. Keep true, useful facts (what is where, what happens

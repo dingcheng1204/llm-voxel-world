@@ -58,7 +58,8 @@ export async function handleDiary(req: Request, deps: ThinkDeps): Promise<Respon
         continue;
       }
       report.day = Number(input.day) || 1;
-      const messages = diaryMessages(PERSONAS[agentId]!, input, date);
+      const others = cfg.agents.filter((id) => id !== agentId).map((id) => PERSONAS[id]?.displayName ?? id);
+      const messages = diaryMessages(PERSONAS[agentId]!, input, date, others);
       let cost = 0;
       let tokensIn = 0;
       let tokensOut = 0;
