@@ -29,8 +29,8 @@ export interface Perception {
   /** Nearest visible block of each kind within 16 blocks — positions the brain can walk to / mine. */
   nearest: Record<string, { pos: [number, number, number]; dist: number }>;
   landmarks: { name: string; pos: [number, number, number]; dist: number }[];
-  nearby_agents: { id: string; pos: [number, number, number]; dist: number; doing: string }[];
-  heard: { from: string; text: string; t: string }[];
+  nearby_agents: { id: string; name?: string; pos: [number, number, number]; dist: number; doing: string }[];
+  heard: { from: string; name?: string; to?: string; text: string; t: string }[];
   last_action_result: ActionResult | null;
   /** Conversation rules state (added server-side from the `messages` table; see chatRules.ts). */
   conversation?: {
@@ -48,7 +48,7 @@ export interface PerceiveContext {
   landmarks: Landmarks;
   chat: ChatLog;
   clock: { day: number; clock: string; t: number };
-  others(): { id: string; pos: THREE.Vector3; doing: string }[];
+  others(): { id: string; name?: string; pos: THREE.Vector3; doing: string }[];
   /** Sim time (s) — lines heard since `lastHeard` are reported. */
   now: number;
   /** Island area name at (x, z) — `world.terrain.biomeAt` in the game and on the server. */
@@ -155,10 +155,22 @@ export function perceive(
     nearby_agents: ctx
       .others()
       .filter((o) => o.id !== agent.id)
-      .map((o) => ({ id: o.id, pos: cellOf(o.pos), dist: dist3(cellOf(o.pos)), doing: o.doing }))
+      .map((o) => ({
+        id: o.id,
+        ...(o.name && o.name !== o.id ? { name: o.name } : {}),
+        pos: cellOf(o.pos),
+        dist: dist3(cellOf(o.pos)),
+        doing: o.doing,
+      }))
       .filter((o) => o.dist <= AGENT_RADIUS)
       .sort((a, b) => a.dist - b.dist),
-    heard: ctx.chat.heard(agent.id, pos, lastHeard).map((l) => ({ from: l.from, text: l.text, t: l.clock })),
+    heard: ctx.chat.heard(agent.id, pos, lastHeard).map((l) => ({
+      from: l.from,
+      ...(l.name && l.name !== l.from ? { name: l.name } : {}),
+      ...(l.to ? { to: l.to } : {}),
+      text: l.text,
+      t: l.clock,
+    })),
     last_action_result: lastResult,
   };
 }

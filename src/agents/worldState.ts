@@ -24,6 +24,10 @@ export class Landmarks {
 
 export interface ChatLine {
   from: string;
+  /** Display name (players); characters use their id. */
+  name?: string;
+  /** Who the line is for (character or player id); undefined/null = everyone in range. */
+  to?: string | null;
   text: string;
   pos: [number, number, number];
   /** Simulation time in seconds. */
@@ -43,13 +47,17 @@ export class ChatLog {
     this.onLine(line);
   }
 
-  /** Lines within hearing range of `pos`, said after `since` (sim seconds), not by `self`. */
+  /**
+   * Lines said after `since` (sim seconds), not by `self`, that `self` hears: everything within hearing
+   * range, plus lines addressed to `self` from anywhere (players talk through the chat window).
+   */
   heard(self: string, pos: [number, number, number], since: number): ChatLine[] {
     return this.lines.filter(
       (l) =>
         l.t > since &&
         l.from !== self &&
-        Math.hypot(l.pos[0] - pos[0], l.pos[1] - pos[1], l.pos[2] - pos[2]) <= HEARING_RADIUS,
+        (l.to === self ||
+          Math.hypot(l.pos[0] - pos[0], l.pos[1] - pos[1], l.pos[2] - pos[2]) <= HEARING_RADIUS),
     );
   }
 }

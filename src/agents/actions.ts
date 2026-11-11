@@ -30,6 +30,8 @@ export const ActionSchema = z.discriminatedUnion('type', [
 export const AgentResponseSchema = z.object({
   thought: z.string().max(400),
   say: z.string().max(140).nullable().optional(),
+  /** Who `say` is for: a character/player id, or "all"/null for everyone in hearing range. */
+  to: z.string().max(40).nullable().optional(),
   /** Optional note for the character's knowledge ("something I just figured out"), stored server-side. */
   learn: z.string().max(140).nullable().optional(),
   actions: z.array(ActionSchema).max(3),

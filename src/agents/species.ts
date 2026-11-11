@@ -4,7 +4,11 @@
 import * as THREE from 'three';
 import { jitter, lowPolyMaterial, merge, painted } from '../scene/lowpoly';
 
-export type Species = 'cat' | 'fox' | 'wolf' | 'snake';
+export type Species = 'cat' | 'fox' | 'wolf' | 'snake' | 'tiger' | 'monkey';
+
+/** Looks a human player can pick when joining (characters use the others). */
+export const PLAYER_SPECIES = ['snake', 'tiger', 'monkey'] as const;
+export type PlayerSpecies = (typeof PLAYER_SPECIES)[number];
 
 export interface CharacterModel {
   root: THREE.Group;
@@ -50,9 +54,15 @@ interface QuadSpec {
   earHeight: number;
   earWidth: number;
   muzzle: number;
-  tail: 'thin' | 'bushy' | 'fluffy';
+  tail: 'thin' | 'bushy' | 'fluffy' | 'curl';
   tailTip?: number;
   snout: number;
+  /** Dark stripes across back and head (tiger). */
+  stripes?: number;
+  /** Round ears instead of pointy ones (monkey). */
+  roundEars?: boolean;
+  /** Lighter face mask (monkey). */
+  face?: number;
 }
 
 function quadruped(spec: QuadSpec): CharacterModel {
@@ -63,6 +73,18 @@ function quadruped(spec: QuadSpec): CharacterModel {
     at(blob(0.42, 1, 0.82, 1.25, spec.body, 1), 0, 0.55, 0),
     at(blob(0.3, 0.95, 0.7, 1.1, spec.belly, 2), 0, 0.45, 0.12),
   ]);
+  if (spec.stripes !== undefined) {
+    // Bold bands over the back that wrap down both flanks.
+    const stripes: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 4; i++) {
+      const z = 0.36 - i * 0.24;
+      stripes.push(at(blob(0.1, 3.2, 0.42, 0.62, spec.stripes, 50 + i, 0), 0, 0.88, z));
+      for (const side of [-1, 1]) {
+        stripes.push(at(blob(0.08, 0.42, 1.9, 0.62, spec.stripes, 54 + i, 0), side * 0.4, 0.62, z));
+      }
+    }
+    body.add(mesh(stripes));
+  }
   root.add(body);
 
   // Legs pivot at the hip so they can swing.
@@ -94,7 +116,20 @@ function quadruped(spec: QuadSpec): CharacterModel {
     at(blob(r * 0.11, 1.2, 0.9, 1, 0x2a2230, 8, 0), 0, -r * 0.16, r * (1.1 + spec.snout * 0.35)),
     ...eyes(r),
   ];
+  if (spec.face !== undefined)
+    headParts.push(at(blob(r * 0.72, 1.15, 0.85, 0.5, spec.face, 9), 0, -r * 0.05, r * 0.55));
+  if (spec.stripes !== undefined) {
+    for (const x of [-0.12, 0, 0.12])
+      headParts.push(at(blob(r * 0.1, 0.5, 1.6, 0.6, spec.stripes, 60, 0), x, r * 0.72, r * 0.45));
+  }
   for (const side of [-1, 1]) {
+    if (spec.roundEars) {
+      headParts.push(at(blob(spec.earWidth, 0.6, 1, 1, spec.body, 70, 0), side * r * 1.02, r * 0.18, -0.02));
+      headParts.push(
+        at(blob(spec.earWidth * 0.6, 0.5, 1, 1, spec.earInner, 71, 0), side * r * 1.08, r * 0.18, 0.02),
+      );
+      continue;
+    }
     const ear = new THREE.ConeGeometry(spec.earWidth, spec.earHeight, 4);
     ear.rotateZ(side * -0.28);
     headParts.push(at(painted(ear, spec.body), side * r * 0.55, r * 0.78 + spec.earHeight * 0.35, -0.02));
@@ -109,7 +144,20 @@ function quadruped(spec: QuadSpec): CharacterModel {
   const tail = new THREE.Group();
   tail.position.set(0, 0.62, -0.5);
   const tailParts: THREE.BufferGeometry[] = [];
-  if (spec.tail === 'thin') {
+  if (spec.tail === 'curl') {
+    // Long monkey tail curling up at the end.
+    for (let i = 0; i < 8; i++) {
+      const a = i * 0.32;
+      tailParts.push(
+        at(
+          blob(0.055, 1, 1, 1.4, spec.body, 80 + i, 0),
+          0,
+          Math.sin(a) * 0.32,
+          -0.05 - Math.sin(a * 0.6) * 0.42,
+        ),
+      );
+    }
+  } else if (spec.tail === 'thin') {
     for (let i = 0; i < 4; i++) {
       tailParts.push(
         at(blob(0.07 - i * 0.008, 1, 1, 1.6, spec.body, 10 + i, 0), 0, i * 0.11, -0.08 - i * 0.07),
@@ -120,8 +168,15 @@ function quadruped(spec: QuadSpec): CharacterModel {
     tailParts.push(at(blob(0.17, 1, 1, len / 0.34, spec.body, 14), 0, 0.05, -len * 0.55));
     if (spec.tailTip) tailParts.push(at(blob(0.12, 1, 1, 1.2, spec.tailTip, 15), 0, 0.08, -len * 1.05));
   }
+  if (spec.stripes !== undefined && spec.tail === 'thin') {
+    for (let i = 1; i < 4; i++) {
+      tailParts.push(
+        at(blob(0.075 - i * 0.008, 1.05, 1.05, 0.5, spec.stripes, 90 + i, 0), 0, i * 0.11, -0.08 - i * 0.07),
+      );
+    }
+  }
   tail.add(mesh(tailParts));
-  tail.rotation.x = spec.tail === 'thin' ? -0.2 : 0.5;
+  tail.rotation.x = spec.tail === 'thin' || spec.tail === 'curl' ? -0.2 : 0.5;
   root.add(tail);
 
   const tailBase = tail.rotation.x;
@@ -239,5 +294,32 @@ export function createModel(species: Species): CharacterModel {
       });
     case 'snake':
       return snake();
+    case 'tiger':
+      return quadruped({
+        body: 0xffa13d,
+        belly: 0xfff6e8,
+        legs: 0xffa13d,
+        earInner: 0xfff6e8,
+        earHeight: 0.16,
+        earWidth: 0.15,
+        muzzle: 0xfff6e8,
+        tail: 'thin',
+        snout: 0.1,
+        stripes: 0x3b2a2a,
+      });
+    case 'monkey':
+      return quadruped({
+        body: 0x9a6a46,
+        belly: 0xf3d9b8,
+        legs: 0x8a5d3d,
+        earInner: 0xf3d9b8,
+        earHeight: 0.12,
+        earWidth: 0.12,
+        muzzle: 0xf3d9b8,
+        tail: 'curl',
+        snout: 0,
+        roundEars: true,
+        face: 0xf3d9b8,
+      });
   }
 }

@@ -69,6 +69,16 @@ export class Agent {
   }
 
   /** Think now. Synchronous brains (scripts) are handled in the same tick; LLM brains asynchronously. */
+  /**
+   * Someone spoke to this character directly: drop the current plan and think again soon (but not
+   * faster than a third of the normal gap — players can't make an LLM character think every second).
+   */
+  poke(): void {
+    if (this.thinking) return;
+    this.executor.clear();
+    this.cooldown = Math.min(this.cooldown, Math.max(1, this.thinkGap / 3));
+  }
+
   private think(simTime: number): void {
     this.thinking = true;
     this.cooldown = this.thinkGap;
@@ -120,6 +130,7 @@ export class Agent {
       const [x, y, z] = this.body.cell;
       this.ctx.perceive.chat.say({
         from: this.id,
+        to: value.to && value.to !== 'all' ? value.to : null,
         text: value.say,
         pos: [x, y, z],
         t: simTime,

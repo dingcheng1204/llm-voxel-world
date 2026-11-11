@@ -33,6 +33,8 @@ export interface SimAgentInput {
 /** Something said recently (from the `messages` table). */
 export interface SimChatLine {
   from: string;
+  name?: string;
+  to?: string;
   text: string;
   pos: [number, number, number];
   /** Epoch ms. */
@@ -104,7 +106,15 @@ export function createSim(input: SimInput): Sim {
   const chat = new ChatLog();
   // Recent lines, timed relative to the start of this run (negative = before it).
   for (const l of [...(input.chat ?? [])].sort((a, b) => a.at - b.at)) {
-    chat.say({ from: l.from, text: l.text, pos: l.pos, t: (l.at - startedAt) / 1000, clock: '' });
+    chat.say({
+      from: l.from,
+      name: l.name,
+      to: l.to ?? null,
+      text: l.text,
+      pos: l.pos,
+      t: (l.at - startedAt) / 1000,
+      clock: '',
+    });
   }
   const clock = new WorldClock(null, undefined, now);
   let simTime = 0;

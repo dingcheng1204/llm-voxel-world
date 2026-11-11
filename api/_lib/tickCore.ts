@@ -98,12 +98,14 @@ async function loadStates(deps: ThinkDeps, cfg: Config): Promise<Map<string, unk
 async function loadChat(deps: ThinkDeps, cfg: Config, nowMs: number): Promise<SimChatLine[]> {
   const since = new Date(nowMs - 10 * 60_000).toISOString();
   const res = await deps.fetch(
-    `${cfg.supabaseUrl}/rest/v1/messages?select=speaker,text,pos,created_at&created_at=gt.${since}&order=created_at`,
+    `${cfg.supabaseUrl}/rest/v1/messages?select=speaker,speaker_name,to_id,text,pos,created_at&created_at=gt.${since}&order=created_at`,
     { headers: anonHeaders(cfg) },
   );
   if (!res.ok) return [];
   const rows = (await res.json()) as {
     speaker: string;
+    speaker_name?: string | null;
+    to_id?: string | null;
     text: string;
     pos: number[] | null;
     created_at: string;
@@ -112,6 +114,8 @@ async function loadChat(deps: ThinkDeps, cfg: Config, nowMs: number): Promise<Si
     .filter((r) => Array.isArray(r.pos) && r.pos.length === 3)
     .map((r) => ({
       from: r.speaker,
+      ...(r.speaker_name && r.speaker_name !== r.speaker ? { name: r.speaker_name } : {}),
+      ...(r.to_id ? { to: r.to_id } : {}),
       text: r.text,
       pos: r.pos as [number, number, number],
       at: Date.parse(r.created_at),

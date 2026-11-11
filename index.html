@@ -160,7 +160,6 @@
         inset: 0;
         display: grid;
         place-items: center;
-        cursor: pointer;
         background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.15), rgba(40, 80, 130, 0.35));
         font-family: ui-rounded, 'Nunito', system-ui, sans-serif;
         color: #2b2b3a;
@@ -182,11 +181,267 @@
         margin: 0 0 4px;
         font-size: 26px;
       }
+      .join {
+        margin: 12px 0 14px;
+        display: grid;
+        gap: 10px;
+        text-align: left;
+      }
+      .join label.name {
+        font-size: 13px;
+        font-weight: 700;
+        color: #5b6b86;
+      }
+      .join input[type='text'] {
+        font:
+          600 17px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        color: #2b2b3a;
+        border: 2px solid #cfd6e2;
+        border-radius: 12px;
+        padding: 9px 12px;
+        width: 100%;
+        margin-top: 4px;
+      }
+      .join input[type='text']:focus {
+        outline: none;
+        border-color: #e2763a;
+      }
+      .join fieldset {
+        border: 0;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .join legend {
+        font-size: 13px;
+        font-weight: 700;
+        color: #5b6b86;
+        margin-bottom: 4px;
+        padding: 0;
+      }
+      .join fieldset label {
+        cursor: pointer;
+      }
+      .join fieldset input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .join fieldset span {
+        display: grid;
+        place-items: center;
+        gap: 2px;
+        padding: 8px 4px;
+        border-radius: 14px;
+        border: 2px solid #e3e8f0;
+        background: #fff;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .join fieldset span b {
+        font-size: 26px;
+        line-height: 1.1;
+      }
+      .join fieldset input:checked + span {
+        border-color: #e2763a;
+        background: #fff4ea;
+      }
+      .join fieldset input:focus-visible + span {
+        outline: 3px solid #4285f4;
+        outline-offset: 2px;
+      }
+      .join .err {
+        min-height: 1em;
+        margin: 0;
+        color: #c2410c;
+        font-size: 13px;
+      }
       .play-card .go {
-        margin: 10px 0 14px;
-        font-size: 18px;
+        appearance: none;
+        border: 0;
+        cursor: pointer;
+        border-radius: 14px;
+        padding: 11px 16px;
+        font:
+          800 18px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        color: #fff;
+        background: #e2763a;
+      }
+      .play-card .go:hover {
+        background: #d0652b;
+      }
+
+      /* ---- chat window ---- */
+      .chat,
+      .chat-pill {
+        position: fixed;
+        left: 12px;
+        bottom: 86px; /* above the hotbar */
+        z-index: 25;
+        font:
+          14px/1.45 ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        color: #2b2b3a;
+      }
+      .chat {
+        width: min(360px, calc(100vw - 24px));
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 16px;
+        box-shadow: 0 6px 24px rgba(30, 60, 90, 0.18);
+        display: flex;
+        flex-direction: column;
+      }
+      .chat[hidden],
+      .chat-pill[hidden] {
+        display: none;
+      }
+      .chat-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px 6px 14px;
+      }
+      .chat-head strong {
+        font-size: 15px;
+        margin-right: auto;
+      }
+      .chat-head button,
+      .chat-pill {
+        appearance: none;
+        border: 0;
+        cursor: pointer;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: #eef2f8;
+        font:
+          700 13px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        color: #2b2b3a;
+      }
+      .chat-head button:hover {
+        background: #e2e8f2;
+      }
+      .chat-pill {
+        background: rgba(255, 255, 255, 0.9);
+        padding: 8px 14px;
+        box-shadow: 0 4px 16px rgba(30, 60, 90, 0.18);
+      }
+      .chat-roster {
+        margin: 0 14px 6px;
+        font-size: 13px;
+        color: #5b6b86;
+      }
+      .chat-list {
+        list-style: none;
+        margin: 0;
+        padding: 4px 14px;
+        max-height: 30vh;
+        min-height: 90px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-top: 1px solid #eef2f8;
+      }
+      .chat-list li {
+        padding: 3px 0;
+        overflow-wrap: anywhere;
+      }
+      .chat-list li.mine {
+        background: #fff7ef;
+        margin: 0 -8px;
+        padding: 3px 8px;
+        border-radius: 8px;
+      }
+      .chat-list time {
+        color: #8a93a6;
+        font-size: 12px;
+        margin-right: 6px;
+        font-variant-numeric: tabular-nums;
+      }
+      .chat-list .who {
         font-weight: 800;
-        color: #e2763a;
+      }
+      .chat-list .arrow {
+        color: #8a93a6;
+        margin: 0 3px;
+      }
+      .chat-list .to {
+        color: #5b6b86;
+        font-weight: 700;
+        margin-right: 6px;
+      }
+      .chat-list .to.direct {
+        color: #2b2b3a;
+      }
+      .chat-form {
+        display: flex;
+        gap: 6px;
+        padding: 8px 10px 4px;
+        border-top: 1px solid #eef2f8;
+      }
+      .chat-to,
+      .chat-input,
+      .chat-send {
+        font:
+          14px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        border-radius: 10px;
+      }
+      .chat-to {
+        border: 1px solid #cfd6e2;
+        background: #fff;
+        padding: 6px;
+        max-width: 110px;
+        color: #2b2b3a;
+      }
+      .chat-input {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid #cfd6e2;
+        padding: 6px 10px;
+        color: #2b2b3a;
+      }
+      .chat-input:focus,
+      .chat-to:focus {
+        outline: 2px solid #4285f4;
+        outline-offset: 0;
+        border-color: transparent;
+      }
+      .chat-send {
+        appearance: none;
+        border: 0;
+        background: #4285f4;
+        color: #fff;
+        font-weight: 800;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+      .chat-status {
+        margin: 0;
+        padding: 0 14px 8px;
+        font-size: 12px;
+        color: #c2410c;
+        min-height: 4px;
+      }
+      .sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
       }
       .play-card .keys {
         display: grid;
@@ -219,12 +474,38 @@
     <div id="play-overlay" hidden>
       <div class="play-card">
         <h1>🏝️ LLM Voxel World</h1>
-        <div class="go">點一下開始</div>
+        <form id="join" class="join" novalidate>
+          <label class="name" for="join-name"
+            >你的名字
+            <input
+              id="join-name"
+              type="text"
+              maxlength="16"
+              placeholder="例如：小丁"
+              autocomplete="nickname"
+            />
+          </label>
+          <fieldset>
+            <legend>你想當</legend>
+            <label
+              ><input type="radio" name="species" value="snake" /><span><b>🐍</b>蛇</span></label
+            >
+            <label
+              ><input type="radio" name="species" value="tiger" checked /><span><b>🐯</b>老虎</span></label
+            >
+            <label
+              ><input type="radio" name="species" value="monkey" /><span><b>🐵</b>猴子</span></label
+            >
+          </fieldset>
+          <p id="join-error" class="err" role="alert"></p>
+          <button type="submit" class="go">進入小島</button>
+        </form>
         <div class="keys">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動</span
           ><span><kbd>空白</kbd> 跳 / 游上去</span> <span><kbd>Shift</kbd> 衝刺</span
           ><span><kbd>F</kbd> 飛行開關（<kbd>C</kbd> 下降）</span> <span>左鍵 挖方塊</span
           ><span>右鍵 放方塊</span> <span><kbd>1</kbd>–<kbd>9</kbd> / 滾輪 選方塊</span
+          ><span><kbd>T</kbd> 聊天（<kbd>Enter</kbd> 送出）</span
           ><span><kbd>F3</kbd> 效能面板 · <kbd>Esc</kbd> 暫停</span>
         </div>
       </div>

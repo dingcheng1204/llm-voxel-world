@@ -424,6 +424,8 @@ const ActionSchema = z.discriminatedUnion("type", [
 const AgentResponseSchema = z.object({
 	thought: z.string().max(400),
 	say: z.string().max(140).nullable().optional(),
+	/** Who `say` is for: a character/player id, or "all"/null for everyone in hearing range. */
+	to: z.string().max(40).nullable().optional(),
 	/** Optional note for the character's knowledge ("something I just figured out"), stored server-side. */
 	learn: z.string().max(140).nullable().optional(),
 	actions: z.array(ActionSchema).max(3)
@@ -1400,12 +1402,15 @@ function perceive(agent, inventory, lastResult, lastHeard, ctx) {
 		})).filter((l) => l.dist <= 96).sort((a, b) => a.dist - b.dist).slice(0, 8),
 		nearby_agents: ctx.others().filter((o) => o.id !== agent.id).map((o) => ({
 			id: o.id,
+			...o.name && o.name !== o.id ? { name: o.name } : {},
 			pos: cellOf(o.pos),
 			dist: dist3(cellOf(o.pos)),
 			doing: o.doing
 		})).filter((o) => o.dist <= 24).sort((a, b) => a.dist - b.dist),
 		heard: ctx.chat.heard(agent.id, pos, lastHeard).map((l) => ({
 			from: l.from,
+			...l.name && l.name !== l.from ? { name: l.name } : {},
+			...l.to ? { to: l.to } : {},
 			text: l.text,
 			t: l.clock
 		})),
@@ -1464,6 +1469,15 @@ var Agent = class {
 		this.body.tick(dt, this.ctx.world);
 	}
 	/** Think now. Synchronous brains (scripts) are handled in the same tick; LLM brains asynchronously. */
+	/**
+	* Someone spoke to this character directly: drop the current plan and think again soon (but not
+	* faster than a third of the normal gap — players can't make an LLM character think every second).
+	*/
+	poke() {
+		if (this.thinking) return;
+		this.executor.clear();
+		this.cooldown = Math.min(this.cooldown, Math.max(1, this.thinkGap / 3));
+	}
 	think(simTime) {
 		this.thinking = true;
 		this.cooldown = this.thinkGap;
@@ -1517,6 +1531,7 @@ var Agent = class {
 			const [x, y, z] = this.body.cell;
 			this.ctx.perceive.chat.say({
 				from: this.id,
+				to: value.to && value.to !== "all" ? value.to : null,
 				text: value.say,
 				pos: [
 					x,
@@ -1676,9 +1691,12 @@ var ChatLog = class {
 		if (this.lines.length > 200) this.lines.shift();
 		this.onLine(line);
 	}
-	/** Lines within hearing range of `pos`, said after `since` (sim seconds), not by `self`. */
+	/**
+	* Lines said after `since` (sim seconds), not by `self`, that `self` hears: everything within hearing
+	* range, plus lines addressed to `self` from anywhere (players talk through the chat window).
+	*/
 	heard(self, pos, since) {
-		return this.lines.filter((l) => l.t > since && l.from !== self && Math.hypot(l.pos[0] - pos[0], l.pos[1] - pos[1], l.pos[2] - pos[2]) <= 16);
+		return this.lines.filter((l) => l.t > since && l.from !== self && (l.to === self || Math.hypot(l.pos[0] - pos[0], l.pos[1] - pos[1], l.pos[2] - pos[2]) <= 16));
 	}
 };
 
@@ -2624,6 +2642,8 @@ function createSim(input) {
 	const chat = new ChatLog();
 	for (const l of [...input.chat ?? []].sort((a, b) => a.at - b.at)) chat.say({
 		from: l.from,
+		name: l.name,
+		to: l.to ?? null,
 		text: l.text,
 		pos: l.pos,
 		t: (l.at - startedAt) / 1e3,

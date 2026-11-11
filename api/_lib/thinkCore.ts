@@ -330,6 +330,19 @@ export async function runThink(
     learn?: string | null;
     actions?: unknown[];
   } | null;
+  // `to` must name someone who exists here (a character, or someone in the perception); else everyone.
+  let to: string | null = null;
+  if (parsed && typeof (parsed as { to?: unknown }).to === 'string') {
+    const want = String((parsed as { to?: unknown }).to).trim();
+    const known = new Set<string>([
+      ...Object.keys(PERSONAS),
+      ...perception.nearby_agents.map((a) => a.id),
+      ...perception.heard.map((h) => h.from),
+    ]);
+    known.delete(agentId);
+    to = known.has(want) ? want : null;
+    (parsed as { to?: string | null }).to = to;
+  }
   // Enforce the conversation rules whatever the model wrote: a muted character says nothing.
   let muted: string | null = null;
   if (parsed && parsed.say && !mayTalk(conversation)) {
@@ -358,6 +371,7 @@ export async function runThink(
       p_payload: {
         thought: parsed?.thought ?? null,
         say: parsed?.say ?? null,
+        ...(to ? { to } : {}),
         ...(learnedSaved ? { learn: learned } : {}),
         ...(muted ? { muted, conversation: conversation.state } : {}),
         actions: parsed?.actions ?? null,

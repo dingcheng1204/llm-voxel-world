@@ -318,3 +318,30 @@ describe('conversation rules', () => {
     expect(data.raw.say).toBe('你好呀');
   });
 });
+
+describe('who a line is for', () => {
+  it('keeps a known target and drops an unknown one', async () => {
+    const say = (to: string) => `{"thought":"t","say":"嗨","to":"${to}","actions":[{"type":"idle"}]}`;
+    const known = fakeFetch({ reply: say('gem') });
+    const r1 = await (
+      await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
+        fetch: known.f,
+        env,
+      })
+    ).json();
+    expect(r1.raw.to).toBe('gem');
+    const log = known.calls.find((c) => c.url.endsWith('/rpc/agent_log_think'))!.body as {
+      p_payload: { to?: string };
+    };
+    expect(log.p_payload.to).toBe('gem');
+
+    const unknown = fakeFetch({ reply: say('nobody') });
+    const r2 = await (
+      await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
+        fetch: unknown.f,
+        env,
+      })
+    ).json();
+    expect(r2.raw.to).toBeNull();
+  });
+});
