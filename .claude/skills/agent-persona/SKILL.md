@@ -17,7 +17,8 @@ Up to **4 characters run at once**.
 
 ## 1. Persona files
 
-Location: `agents/personas/<id>.yaml`. One file per character. Template: `references/persona-template.yaml`.
+Location: `src/agents/personas.ts` (plain data, `PERSONAS[id]`, imported by both the browser and the API — keep it
+free of runtime imports). `references/persona-template.yaml` documents the fields; the YAML files were replaced by this module.
 Starting cast: `references/starting-cast.md` (cat/Claude, fox/Gemini, wolf/ChatGPT, snake/4th brain).
 
 Required fields:
@@ -116,8 +117,9 @@ overlap anyone. Bodies obey the same physics as the player (see the `voxel-engin
 Brains implement `Brain.think(perception, retryError?)` (`src/agents/brains/demo.ts`) and may return a string,
 an object or a Promise — `Agent` validates it. Scripted `DemoBrain` (gather / explore) stands in until phase 4.
 
-**Agent edits are not saved yet**: every visitor's browser runs its own copy of the characters, so their world
-edits stay local. In phase 4 the agents run server-side and write the shared world (`world_edits`, `by` = agent id).
+**Which edits are saved**: server-run characters (the LLM ones, see §9) write the shared world (`world_edits`,
+`by` = agent id) — from the server tick, or from the browser tab currently driving them. Scripted characters still
+run separately in every browser, so their edits stay local (`WorldSave.saveBy`).
 
 ## 5. Thinking cadence & cost
 
@@ -125,8 +127,11 @@ edits stay local. In phase 4 the agents run server-side and write the shared wor
 - Minimum gap between thinks: 6 s for LLM brains (`DEFAULT_THINK_GAP`; scripted demo brains use 1.5 s).
   Idle characters with nobody nearby think at most once per 60 s.
 - A character waits until the terrain under it is loaded before its first think.
-- Per-character daily budget (tokens and USD) in `agents/budget.yaml`; when exceeded the character
-  "goes to sleep" until the next day. Diary writing has its own reserved budget so it always runs.
+- Budget is enforced **server-side** (`api/_lib/thinkCore.ts` → `runThink`), shared by every visitor and the
+  server tick: `AGENT_DAILY_BUDGET_USD` (default 0.5, Asia/Taipei day), `AGENT_MAX_CALLS_PER_MIN` (default 20),
+  `AGENT_LLM_AGENTS` allow-list (default `clio`). Over budget → HTTP 429 → the character "goes to sleep".
+  Fails closed without `AGENT_DB_SECRET`. Diary writing will get its own reserved budget (phase 5).
+- Nobody watching → the server tick thinks once per minute (§9).
 
 ## 6. Chat rules
 
@@ -151,9 +156,28 @@ feelings, guesses and questions are encouraged.
 
 ## 8. Adding a new brain
 
-1. Add the provider to the AI Gateway / env (`.env.example`), never to client code.
-2. Create `agents/personas/<id>.yaml` from the template.
+1. Add the provider's key to Vercel env (`.env.example` lists names), never to client code. Model calls live in
+   `api/_lib/thinkCore.ts` (OpenAI-compatible chat completions).
+2. Add the persona to `src/agents/personas.ts` and the id to `AGENT_LLM_AGENTS`.
 3. Run `npm run agent:dry-run -- <id>` (sends a fixed perception, checks the JSON contract) before
    spawning it in the world.
 4. A new species = a new model function in `species.ts` returning `CharacterModel` (`root` + `animate(time, speed)`),
    built from low-poly primitives with `scene/lowpoly.ts` helpers, front facing +Z, about 1 block tall. No new abilities.
+
+## 9. Server-run characters (who drives)
+
+LLM characters live server-side so they keep exploring when nobody watches and everyone sees the same one.
+State (`AgentSnapshot`, `src/agents/snapshot.ts`: pos, heading, inventory, landmarks, last thought/say, last result)
+is stored in Supabase `agent_state` and validated with zod on every read/write.
+
+Exactly one simulator drives a character at a time — a **lease** taken through the `agent_state_sync` RPC:
+- **Browser driver**: a tab whose game loop is actually running (visible *and* ticked < 2 s ago) holds a 30 s lease,
+  renewed by `/api/agent/state` heartbeats every 4 s (which also upload the snapshot) and by every `/api/agent/think`.
+  `/think` refuses (409) a tab without the lease, so only one tab spends tokens.
+- **Mirrors**: other tabs walk the character towards the saved position and show the saved bubbles (`AgentSync`).
+- **Server tick**: Supabase pg_cron → `/api/agent/tick` every minute. If no browser holds the lease it rebuilds the
+  island headless (`src/server/sim.ts`, same engine), thinks once, runs 60 s of physics and saves state + edits.
+
+`src/server/sim.ts` is bundled to `api/_gen/sim.js` (`npm run build:sim`, committed; `npm run check` fails if stale)
+because the Vercel Node runtime can't load the extensionless imports in `src/`. API code may import from `src/`
+directly only for modules with no relative runtime imports (`personas.ts`, `prompt.ts`, `snapshot.ts`).

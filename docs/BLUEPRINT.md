@@ -95,6 +95,14 @@
                                                        └─▶ last_action_result
 ```
 
+**誰在跑思考迴圈（2026-11 起，伺服器端角色）**：LLM 角色存在伺服器上，所有訪客看到同一隻，沒人看時也繼續生活。
+同一時間只有一個模擬器「驅動」角色（Supabase `agent_state` + `agent_state_sync` 租約）：
+
+| 情況 | 驅動者 | 思考頻率 |
+|---|---|---|
+| 有人開著網頁（分頁可見、遊戲迴圈在跑） | 該分頁（其他分頁同步觀看） | 約 6 秒一次 |
+| 沒人在看 | 伺服器：pg_cron 每分鐘 → `/api/agent/tick`，無頭模擬整座島 60 秒 | 每分鐘 1 次 |
+
 ### 4.3 對話
 - `say` 讓 16 格內的所有人（含玩家）聽到。
 - 兩個角色之間一段對話最多 8 輪或 2 分鐘，結束後各自冷卻 60 秒，避免無限聊天燒錢。
@@ -185,11 +193,13 @@ Supabase 專案：`llm-voxel-world`（ap-northeast-1 東京）。SQL 在 `supaba
 
 | Endpoint | 方法 | 說明 |
 |---|---|---|
-| `/api/agent/think` | POST | `{agentId, perception}` → `{thought, say, actions}`；檢查預算、記錄 usage 和 events |
+| `/api/agent/think` | POST | `{agentId, clientId, perception}` → `{raw, cost, …}`；需持有租約；檢查預算、記錄 usage 和 events |
+| `/api/agent/state` | POST | 分頁心跳 `{agentId, clientId, state?, release?}` → `{driver, state}`；驅動者上傳狀態，其他人同步 |
+| `/api/agent/tick` | POST (pg_cron) | 每分鐘一次，header `x-agent-secret`；沒有分頁驅動時，伺服器思考 1 次 + 模擬 60 秒 |
 | `/api/agent/event` | POST | 批次寫入事件（動作結果、發現、命名地點） |
 | `/api/chat` | POST | 寫入一則 `say` 或玩家訊息 |
 | Supabase Edge Function `world-edits` | GET/POST | 讀寫方塊編輯（已上線；service role 只在伺服器端） |
-| `/api/cron/diary` | GET (cron) | 為每個角色產生當日日記；`vercel.json` 設 `30 15 * * *`（UTC = 台北 23:30） |
+| `/api/cron/diary` | GET (cron) | 為每個角色產生當日日記；每天一次（UTC `30 15 * * *` = 台北 23:30；Vercel 免費方案 cron 一天一次即可，或沿用 pg_cron） |
 
 環境變數：見 `.env.example`。
 

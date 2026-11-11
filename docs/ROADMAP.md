@@ -48,22 +48,27 @@
 - [x] debug（F3）：顯示路徑線、目前動作、背包、想法；`__game.agents[i].lastPerception`
 - [x] ✅ 驗收：4 個腳本角色在真實島嶼上無頭模擬 10 分鐘（`soak.test.ts`）：不卡住、不掉海、不卡進方塊，採集者各完成 30+ 輪
 
-## 階段 4 — 第一個大腦（Claude）
-- [ ] `.env`：AI Gateway key；`api/agent/think.ts`（AI SDK `generateObject` + zod）
-- [ ] `src/agents/prompt.ts`：照 agent-persona 的 system prompt 範本
-- [ ] `agents/personas/clio.yaml`
-- [ ] 思考節奏（6–20 秒、事件觸發）
-- [ ] 想法泡泡 + `say` 對話泡泡
-- [ ] `events`、`usage` 寫入 Supabase
+## 階段 4 — 第一個大腦（Clio，MiniMax M3.1 Flash）
+- [x] `api/agent/think.ts`：MiniMax OpenAI 相容 API（M Plan 訂閱 key，`MINIMAX_API_KEY_1`）；回覆用 zod 驗證、錯誤重試一次（原訂 AI Gateway，改直連以控制成本）
+- [x] 伺服器端成本保護：每日 US$ 上限（台北日）、全站每分鐘次數上限、只允許名單內角色、缺 secret 就拒絕（fail closed）
+- [x] `src/agents/prompt.ts`：照 agent-persona 的 system prompt 範本
+- [x] 角色設定改為 `src/agents/personas.ts`（純資料，前後端共用；取代 `agents/personas/*.yaml`）
+- [x] 思考節奏（有人看時 6 秒；無人時每分鐘 1 次）
+- [x] 想法泡泡 + `say` 對話泡泡
+- [x] `events`、`usage` 寫入 Supabase
+- [x] **伺服器端角色**：`agent_state` 存位置/背包/地標/最後想法；租約（lease）保證同一時間只有一個模擬器在驅動
+- [x] 有人在看：該分頁驅動（每 4 秒上傳狀態），其他分頁同步觀看；分頁隱藏或遊戲迴圈停住就交還
+- [x] 無人在看：Supabase pg_cron 每分鐘呼叫 `/api/agent/tick`，伺服器無頭模擬整座島 60 秒（與瀏覽器同一套引擎，打包成 `api/_gen/sim.js`）
+- [x] 驅動中的 Clio 挖/放方塊會存進共用世界
 - [ ] `npm run agent:dry-run -- clio`
-- [ ] ✅ 驗收：Clio 自己探索 15 分鐘，說話合理，花費在預算內
+- [ ] ✅ 驗收：Clio 自己探索 15 分鐘，說話合理，花費在預算內（伺服器 tick 已實測；待連續觀察）
 
 ## 階段 5 — 三個角色 + 聊天 + 日記
 - [ ] 加入 `gem.yaml`（Gemini）、`pip.yaml`（ChatGPT）
 - [ ] 聽覺範圍 16 格、`heard` 進 Perception
 - [ ] 對話輪數上限（8 輪 / 2 分鐘）+ 冷卻
 - [ ] `messages` 表
-- [ ] `api/cron/diary.ts` + `vercel.json` cron（台北 23:30）
+- [ ] `api/cron/diary.ts` + 每日排程（台北 23:30；Vercel 免費方案 cron 一天一次即可，或沿用 pg_cron）
 - [ ] 最近 3 篇日記進 system prompt
 - [ ] 日記閱讀頁 `/diary`（frontend-design skill）
 - [ ] `agents/budget.yaml` 每日預算 + 睡覺機制

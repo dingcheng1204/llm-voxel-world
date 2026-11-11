@@ -1,6 +1,6 @@
 # 進度說明（2026-11-11）
 
-**現況**：階段 0–3 完成。島嶼可以玩：第一人稱走、跳、游泳、飛，挖和放方塊，有日夜循環，存檔會同步到雲端。4 隻可愛小動物用 A* 尋路、會挖樹、能幫地點取名，目前由腳本大腦驅動，下一步換成 LLM。
+**現況**：階段 0–4 完成（階段 4 的 15 分鐘驗收待連續觀察）。島嶼可以玩：第一人稱走、跳、游泳、飛，挖和放方塊，有日夜循環，存檔會同步到雲端。Clio（貓）由 LLM（MiniMax M3.1 Flash）驅動，**在伺服器上 24 小時持續生活**：有人在看時每 6 秒思考一次，沒人在看時每分鐘一次，所有訪客看到同一隻 Clio。另外 3 隻仍是腳本大腦。
 
 - 線上版：https://llm-voxel-world.vercel.app （push 到 `main` 會自動部署）
 - 原始碼：https://github.com/dingcheng1204/llm-voxel-world
@@ -16,8 +16,8 @@
 | 1 方塊世界 | 地形、chunk、第一人稱、碰撞、挖/放、快捷列 | ✅（實機 FPS 待確認） |
 | 2 世界打磨 | greedy meshing、AO、日夜循環、存檔（localStorage + Supabase）、192×288 大島 | ✅（實機 FPS 待確認） |
 | 3 角色身體 | 共用物理、動作 schema、A* 尋路、動作執行器、感知、腳本大腦、10 分鐘持續測試 | ✅ |
-| 4 第一個大腦 | `/api/agent/think` 接 Claude，Clio 自己探索、說話 | ⏭ 下一步 |
-| 5 三個角色 + 聊天 + 日記 | Gemini、ChatGPT、互相聊天、每日日記、日記閱讀頁 | ⬜ |
+| 4 第一個大腦 | Clio 接 MiniMax、伺服器成本保護、伺服器端持續模擬（無人時每分鐘 1 次） | ✅（15 分鐘驗收待觀察） |
+| 5 三個角色 + 聊天 + 日記 | Gemini、ChatGPT、互相聊天、每日日記、日記閱讀頁 | ⏭ 下一步 |
 | 6 擴充 | 玩家聊天框、Grok/Llama/Qwen、小地圖、成本面板 | ⬜ |
 | 7 合作寫程式 | 角色在 Vercel Sandbox 合作寫程式 | ⬜ |
 
@@ -68,15 +68,23 @@
 ├─ world/    地形、chunk、greedy+AO mesher（Web Worker）、raycast、存檔同步
 ├─ player/   第一人稱控制、AABB 物理（角色也共用）、快捷列
 ├─ scene/    天空、海、雲、日夜、裝飾物、火焰
-└─ agents/   身體、動作 schema、A*、執行器、感知、大腦（目前是腳本）
+├─ agents/   身體、動作 schema、A*、執行器、感知、大腦（LLM / 腳本）、AgentSync（驅動/觀看切換）
+└─ server/   伺服器模擬（無頭世界，打包成 api/_gen/sim.js）
 
-Vercel（靜態網站，push 自動部署）
+Vercel（靜態網站 + Functions，push 自動部署）
+├─ /api/agent/think   有人在看時，驅動中的分頁請 LLM 思考（需持有租約）
+├─ /api/agent/state   分頁心跳：驅動者上傳狀態，其他人拿到狀態來同步
+└─ /api/agent/tick    每分鐘一次：無人驅動時，伺服器思考 1 次 + 模擬 60 秒
 Supabase（llm-voxel-world，東京）
-├─ 資料表：agents、events、messages、diaries、world_edits、usage（RLS 全開，前端只能讀）
+├─ 資料表：agents、agent_state、events、messages、diaries、world_edits、usage（RLS 全開，前端只能讀）
+├─ RPC：agent_budget、agent_log_think、agent_state_sync（都要伺服器 secret）
+├─ pg_cron「agent-tick」：每分鐘 → pg_net → /api/agent/tick
 └─ Edge Function：world-edits（讀寫方塊修改，管理員金鑰只在伺服器端）
 ```
 
-程式約 6,000 行 TypeScript，57 個自動測試。GitHub Actions 每次 push 都會跑型別檢查、lint、測試和 build。
+**誰在驅動 Clio（租約 lease）**：同一時間只有一個模擬器。可見且遊戲迴圈在跑的分頁優先（租約 30 秒，每 4 秒續約）；分頁隱藏、最小化或關閉就交還，伺服器 tick 接手。每次思考都扣同一份每日預算（預設 US$0.50，台北時間每天歸零）。
+
+程式約 7,000 行 TypeScript，82 個自動測試。GitHub Actions 每次 push 都會跑型別檢查、lint、測試和 build。
 
 ---
 
@@ -97,22 +105,20 @@ Supabase（llm-voxel-world，東京）
 
 - **實機 FPS 還沒驗收**：雲端環境沒有 GPU，請在電腦上打開線上版，按 F3 看 FPS。
 - **裝飾物沒有碰撞**：玩家和角色會穿過椰子樹、樹叢和石頭。
-- **角色挖和放的結果只存在本機**：每位訪客的瀏覽器跑各自的角色，要等階段 4 角色改在伺服器上跑，才會寫入共用世界。
+- **只有 Clio 在伺服器上跑**：Gem、Pip、Rook 仍是每個瀏覽器各自的腳本角色，牠們挖和放的結果只存在本機。
+- **狀態上傳沒有檢查移動是否合理**：座標範圍、背包數量都有驗證，但持有租約的分頁理論上可以把 Clio「瞬移」。
+- **無人時每分鐘只思考一次**：計畫做完就原地休息到下一分鐘。
 - **地形生成在主執行緒**：載入速度會受 FPS 影響，必要時搬進 worker。
 - **共用世界沒有速率限制**：任何人都能挖和放；Edge Function 有檢查座標和數量，但還沒限制頻率。
 - **Supabase 安全提示**：`events`、`usage` 兩張表沒有開放權限（刻意的，只給伺服器用）。
 
 ---
 
-## 6. 下一步：階段 4（接上 Claude）
+## 6. 下一步：階段 5（三個角色 + 聊天 + 日記）
 
-1. 在 Vercel 後台建立 **AI Gateway API key**，放進環境變數 `AI_GATEWAY_API_KEY`（不要貼在對話或程式碼裡）。
-2. 建立 `api/agent/think`：用 AI SDK `generateObject` 加上現有的 zod schema，把 Perception 轉成動作。
-3. 建立 `src/agents/prompt.ts` 和 `agents/personas/clio.yaml`。
-4. 決定角色在哪裡跑：
-   - 先在瀏覽器跑，只給開發者用，最簡單。
-   - 或是在伺服器上排程跑一個共用世界，大家看到同一批角色，挖和放也會寫進雲端。
-5. 想法泡泡和說話泡泡；`events`、`usage` 寫入 Supabase；每日預算。
+1. Gem、Pip 也改成伺服器端角色（tick 一次跑多個角色，共用同一個世界），各接一個便宜的大腦。
+2. 聽覺範圍 16 格、對話輪數上限與冷卻，說話寫進 `messages`。
+3. 每日日記：根據 `events` 真正發生的事寫，台北 23:30；日記閱讀頁 `/diary`。
 
 ---
 
@@ -134,7 +140,9 @@ npm run check   # 型別檢查 + lint + 測試 + build
 | `?reset=1` | 清掉這個瀏覽器的本機存檔 |
 | `?pr=1` `?aa=1` | 解析度上限、反鋸齒 |
 
-在瀏覽器 console 可以用 `__game` 檢查狀態，例如 `__game.agents[0].lastPerception`、`__game.save.status`、`__game.world.stats`。
+在瀏覽器 console 可以用 `__game` 檢查狀態，例如 `__game.agents[0].lastPerception`、`__game.save.status`、`__game.world.stats`、`__game.syncs.get('clio').role`（driver / mirror / local）。
+
+伺服器 tick 的結果可以在 Supabase 查：`select status_code, content, created from net._http_response order by id desc limit 5;`
 
 ---
 
@@ -151,3 +159,6 @@ npm run check   # 型別檢查 + lint + 測試 + build
 | `aea9f0f` | 階段 2：存檔、AO、日夜循環 |
 | `a599ee8` | 雲端同步時序修正 |
 | `7325a5e` | 階段 3：角色身體、動作、尋路、執行器、感知 |
+| `583ecfc` | 階段 4：`/api/agent/think`（MiniMax M3.1 Flash）、伺服器預算保護、Clio 的 LLM 大腦 |
+| `cd8bd0b` | 伺服器端 Clio：狀態保存、租約、每分鐘伺服器 tick |
+| `df822d8` | 只有遊戲迴圈在跑的分頁才能驅動角色 |
