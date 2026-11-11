@@ -68,8 +68,9 @@
 - [ ] 聽覺範圍 16 格、`heard` 進 Perception
 - [ ] 對話輪數上限（8 輪 / 2 分鐘）+ 冷卻
 - [ ] `messages` 表
-- [ ] `api/cron/diary.ts` + 每日排程（台北 23:30；Vercel 免費方案 cron 一天一次即可，或沿用 pg_cron）
-- [ ] 最近 3 篇日記進 system prompt
+- [x] 每日日記 `api/agent/diary`：pg_cron 台北 23:30；當天事件壓縮成摘要 → 固定標題的 Markdown + 一句「明天要記得的事」；日記有保留預算
+- [x] 短期記憶：最近 10 次思考（想法、說話、動作、結果、區域）放進每次提示詞
+- [x] 最近 3 篇日記（各一句記憶）進 system prompt
 - [ ] 日記閱讀頁 `/diary`（frontend-design skill）
 - [ ] `agents/budget.yaml` 每日預算 + 睡覺機制
 - [ ] ✅ 驗收：連跑一天，三人都有日記，內容只寫真的發生的事

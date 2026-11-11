@@ -181,3 +181,16 @@ Exactly one simulator drives a character at a time — a **lease** taken through
 `src/server/sim.ts` is bundled to `api/_gen/sim.js` (`npm run build:sim`, committed; `npm run check` fails if stale)
 because the Vercel Node runtime can't load the extensionless imports in `src/`. API code may import from `src/`
 directly only for modules with no relative runtime imports (`personas.ts`, `prompt.ts`, `snapshot.ts`).
+
+## 10. Memory (implemented)
+
+- **Short-term**: the last 10 `think` events (thought, say, actions, outcome from the next think's
+  `last_result`, position + area) → "What you did recently" in the user prompt (`src/agents/memory.ts`).
+- **Long-term**: each diary also stores a one-line `summary` ("what I most want to remember tomorrow");
+  the newest 3 go into the system prompt ("What you remember from earlier days"), stable all day.
+- Both are read with the budget in one RPC (`agent_context`). Memory roughly doubles input tokens
+  (~1.5k → ~2.4k per think) — keep it compact.
+- **Diary**: `/api/agent/diary` (pg_cron 23:30 Asia/Taipei, `api/_lib/diaryCore.ts`, `src/agents/diary.ts`):
+  the day's events are compressed by `buildDigest` (areas, named places, actions, failures, words, sampled
+  thoughts), the model returns JSON `{diary, memory}`, headings are validated and our own title
+  `# 第 N 天 · YYYY-MM-DD` is added (N = the character's Nth diary). Re-running for the same date overwrites.
