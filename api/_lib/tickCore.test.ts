@@ -6,29 +6,68 @@ import { handleTick } from './tickCore';
 const env = { MINIMAX_API_KEY_1: 'k', AGENT_DB_SECRET: 's' };
 const sim = { createSim, parseAgentResponse };
 
-/** Fake Supabase + MiniMax with an in-memory agent_state row and lease. */
-function backend(opts: { driver?: string | null; reply?: string; spent?: number } = {}) {
-  const row = { state: {} as unknown, driver: opts.driver ?? null };
+/** Fake Supabase + MiniMax/Gemini with in-memory agent_state rows and leases. */
+function backend(
+  opts: {
+    driver?: string | null;
+    reply?: string;
+    spent?: number;
+    gemCalls?: number;
+    gemDriver?: string | null;
+  } = {},
+) {
+  const rows: Record<string, { state: unknown; driver: string | null }> = {
+    clio: { state: {}, driver: opts.driver ?? null },
+    gem: { state: {}, driver: opts.gemDriver ?? null },
+  };
+  const row = rows.clio!;
   const calls: { url: string; body: unknown }[] = [];
   const savedEdits: unknown[] = [];
   const f = (async (url: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ url, body });
     if (url.endsWith('/rpc/agent_state_sync')) {
-      const mine = row.driver === null || row.driver === body.p_driver;
+      const r = rows[body.p_agent]!;
+      const mine = r.driver === null || r.driver === body.p_driver;
       if (mine) {
-        row.driver = body.p_release ? null : body.p_driver;
-        if (body.p_state) row.state = body.p_state;
+        r.driver = body.p_release ? null : body.p_driver;
+        if (body.p_state) r.state = body.p_state;
       }
-      return new Response(JSON.stringify({ driver: mine, state: row.state, updated_at: 'now' }));
+      return new Response(JSON.stringify({ driver: mine, state: r.state, updated_at: 'now' }));
     }
+    if (url.includes('/rest/v1/agent_state'))
+      return new Response(
+        JSON.stringify(Object.entries(rows).map(([agent_id, r]) => ({ agent_id, state: r.state }))),
+      );
+    if (url.includes('/rest/v1/messages')) return new Response('[]');
     if (url.endsWith('/rpc/agent_context'))
-      return new Response(JSON.stringify({ spent_today: opts.spent ?? 0, calls_last_minute: 0 }));
+      return new Response(
+        JSON.stringify({
+          spent_today: opts.spent ?? 0,
+          calls_last_minute: 0,
+          agent_calls_pt_day: body.p_agent === 'gem' ? (opts.gemCalls ?? 0) : 0,
+        }),
+      );
     if (url.endsWith('/rpc/agent_log_think')) return new Response('');
     if (url.includes('/rest/v1/world_edits')) return new Response('[]');
     if (url.endsWith('/functions/v1/world-edits')) {
       savedEdits.push(...body.edits);
       return new Response('{"ok":true}');
+    }
+    if (url.endsWith('/chat/completions') && url.includes('googleapis')) {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"thought":"去看看 Clio","say":"Clio！我發現一個好地方！","actions":[{"type":"idle"}]}',
+              },
+            },
+          ],
+          usage: { prompt_tokens: 1000, completion_tokens: 80 },
+        }),
+      );
     }
     if (url.endsWith('/chat/completions')) {
       return new Response(
@@ -48,7 +87,7 @@ function backend(opts: { driver?: string | null; reply?: string; spent?: number 
     }
     return new Response('not found', { status: 404 });
   }) as unknown as typeof fetch;
-  return { f, calls, row, savedEdits };
+  return { f, calls, row, rows, savedEdits };
 }
 
 const tickReq = (secret = 's') =>
@@ -138,4 +177,50 @@ describe('handleState', () => {
     for (const body of bad)
       expect((await handleState(post(body), { fetch: b.f, env })).status).toBeGreaterThanOrEqual(400);
   });
+});
+
+describe('handleTick with two brains', () => {
+  const env2 = { ...env, GEMINI_API_KEY_1: 'g' };
+  const at = (minute: number) => () => minute * 60_000 + 5_000;
+  const due = 29_573_400; // divisible by 4 → Gem is due too
+
+  it('runs Clio and Gem in one world, each with its own provider, and saves both', async () => {
+    const b = backend();
+    const data = await (await handleTick(tickReq(), { fetch: b.f, env: env2, sim, now: at(due) })).json();
+    const byId = Object.fromEntries(data.reports.map((r: { agentId: string }) => [r.agentId, r]));
+    expect(byId.clio.say).toBe('散步囉');
+    expect(byId.gem.say).toBe('Clio！我發現一個好地方！');
+    const models = b.calls.filter((c) => c.url.endsWith('/chat/completions'));
+    expect(models.map((c) => (c.body as { model: string }).model).sort()).toEqual([
+      'MiniMax-M3.1-Flash',
+      'gemini-3.1-flash-lite',
+    ]);
+    const gemBody = models.find((c) => c.url.includes('googleapis'))!.body as Record<string, unknown>;
+    expect(gemBody.max_tokens).toBe(2000);
+    expect(gemBody.max_completion_tokens).toBeUndefined();
+    expect((b.rows.gem!.state as { say: string }).say).toBe('Clio！我發現一個好地方！');
+    expect(b.rows.gem!.driver).toBeNull();
+  }, 30_000);
+
+  it('thinks for Gem only every 4 minutes, and not over its daily quota', async () => {
+    const b = backend();
+    const off = await (await handleTick(tickReq(), { fetch: b.f, env: env2, sim, now: at(due + 1) })).json();
+    expect(off.reports.find((r: { agentId: string }) => r.agentId === 'gem').skipped).toMatch(/every 4 min/);
+    expect(b.calls.some((c) => c.url.includes('googleapis'))).toBe(false);
+
+    const capped = backend({ gemCalls: 470 });
+    const data = await (
+      await handleTick(tickReq(), { fetch: capped.f, env: env2, sim, now: at(due) })
+    ).json();
+    expect(data.reports.find((r: { agentId: string }) => r.agentId === 'gem').error).toBe(
+      'daily quota reached',
+    );
+    expect(capped.calls.some((c) => c.url.includes('googleapis'))).toBe(false);
+  }, 30_000);
+
+  it('leaves Gem off (no model call) without its key', async () => {
+    const b = backend();
+    const data = await (await handleTick(tickReq(), { fetch: b.f, env, sim, now: at(due) })).json();
+    expect(data.reports.map((r: { agentId: string }) => r.agentId)).toEqual(['clio']);
+  }, 30_000);
 });

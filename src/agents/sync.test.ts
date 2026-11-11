@@ -7,14 +7,19 @@ import { Landmarks } from './worldState';
 const driverBrain: Brain = { think: () => ({ thought: 'drive', say: null, actions: [] }) };
 
 function setup(reply: () => Response | Promise<Response>, visible = true) {
-  const sim = createSim({ seed: 20261110, agentId: 'clio', snapshot: null, edits: [] });
+  const sim = createSim({
+    seed: 20261110,
+    agents: [{ agentId: 'clio', snapshot: null, active: true }],
+    edits: [],
+  });
+  const agent = sim.agents.get('clio')!;
   const sent: Record<string, unknown>[] = [];
   const f = (async (_url: string, init?: RequestInit) => {
     sent.push(JSON.parse(String(init?.body)));
     return reply();
   }) as unknown as typeof fetch;
-  const sync = new AgentSync(sim.agent, new Landmarks(), driverBrain, 'tab-12345678', '/s', f, () => visible);
-  return { sim, sync, sent };
+  const sync = new AgentSync(agent, new Landmarks(), driverBrain, 'tab-12345678', '/s', f, () => visible);
+  return { sim, agent, sync, sent };
 }
 
 const ok = (body: unknown) => new Response(JSON.stringify(body));
@@ -22,22 +27,22 @@ const ok = (body: unknown) => new Response(JSON.stringify(body));
 describe('AgentSync', () => {
   it('resumes from the saved state and mirrors when someone else drives', async () => {
     const saved = { pos: [20.5, 30, -40.5], say: '我在山腳下', sayAt: Date.now(), landmarks: [] };
-    const { sim, sync } = setup(() => ok({ driver: false, state: saved }));
-    expect(sim.agent.brain).not.toBe(driverBrain); // no thinking before the first answer
+    const { agent, sync } = setup(() => ok({ driver: false, state: saved }));
+    expect(agent.brain).not.toBe(driverBrain); // no thinking before the first answer
     await sync.beat();
     expect(sync.role).toBe('mirror');
-    expect(sim.agent.body.pos.x).toBeCloseTo(20.5);
-    expect(sim.agent.lastSay?.text).toBe('我在山腳下');
-    expect(sim.agent.brain).not.toBe(driverBrain);
+    expect(agent.body.pos.x).toBeCloseTo(20.5);
+    expect(agent.lastSay?.text).toBe('我在山腳下');
+    expect(agent.brain).not.toBe(driverBrain);
   }, 20_000);
 
   it('drives when granted the lease, uploads snapshots, and releases when hidden', async () => {
     let visible = true;
-    const { sim, sync, sent } = setup(() => ok({ driver: visible, state: null }));
+    const { agent, sync, sent } = setup(() => ok({ driver: visible, state: null }));
     (sync as unknown as { active: () => boolean }).active = () => visible;
     await sync.beat();
     expect(sync.role).toBe('driver');
-    expect(sim.agent.brain).toBe(driverBrain);
+    expect(agent.brain).toBe(driverBrain);
     await sync.beat();
     expect((sent[1]!.state as { pos: number[] }).pos).toHaveLength(3);
     visible = false;
@@ -48,9 +53,38 @@ describe('AgentSync', () => {
   }, 20_000);
 
   it('falls back to running locally when there is no API', async () => {
-    const { sim, sync } = setup(() => new Response('nope', { status: 404 }));
+    const { agent, sync } = setup(() => new Response('nope', { status: 404 }));
     await sync.beat();
     expect(sync.role).toBe('local');
-    expect(sim.agent.brain).toBe(driverBrain);
+    expect(agent.brain).toBe(driverBrain);
+  }, 20_000);
+});
+
+describe('AgentSync for a character the server does not run', () => {
+  it('keeps the local script on 403', async () => {
+    const script: Brain = { think: () => ({ thought: 'script', say: null, actions: [] }) };
+    const sim = createSim({
+      seed: 20261110,
+      agents: [{ agentId: 'gem', snapshot: null, active: true }],
+      edits: [],
+    });
+    const agent = sim.agents.get('gem')!;
+    const f = (async () =>
+      new Response('{"error":"not server-run"}', { status: 403 })) as unknown as typeof fetch;
+    const sync = new AgentSync(
+      agent,
+      new Landmarks(),
+      driverBrain,
+      'tab-12345678',
+      '/s',
+      f,
+      () => true,
+      script,
+      1.5,
+    );
+    await sync.beat();
+    expect(sync.role).toBe('local');
+    expect(agent.brain).toBe(script);
+    expect(agent.thinkGap).toBe(1.5);
   }, 20_000);
 });

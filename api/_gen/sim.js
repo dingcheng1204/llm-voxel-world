@@ -1606,6 +1606,8 @@ const SnapshotSchema = z.object({
 	thought: z.string().max(400).default(""),
 	/** Epoch ms of the thought (for the bubble). */
 	thoughtAt: z.number().default(0),
+	/** Epoch ms of the last perception this character acted on — lines said after it count as "heard". */
+	lastThinkAt: z.number().default(0),
 	say: z.string().max(140).nullable().default(null),
 	sayAt: z.number().nullable().default(null),
 	lastResult: z.object({
@@ -1614,7 +1616,7 @@ const SnapshotSchema = z.object({
 		reason: z.string().max(200).optional()
 	}).nullable().default(null)
 });
-function takeSnapshot(agent, landmarks) {
+function takeSnapshot(agent, landmarks, lastThinkAt = Date.now()) {
 	const b = agent.body.body;
 	return {
 		pos: [
@@ -1631,6 +1633,7 @@ function takeSnapshot(agent, landmarks) {
 		})),
 		thought: agent.thought.slice(0, 400),
 		thoughtAt: agent.thoughtAt,
+		lastThinkAt,
 		say: agent.lastSay?.text.slice(0, 140) ?? null,
 		sayAt: agent.lastSay?.at ?? null,
 		lastResult: agent.executor.lastResult ? {
@@ -2624,9 +2627,8 @@ var PlannedBrain = class {
 	}
 };
 function createSim(input) {
-	const member = CAST.find((m) => m.id === input.agentId);
-	if (!member) throw new Error(`unknown agent ${input.agentId}`);
 	const now = input.now ?? Date.now;
+	const startedAt = now();
 	const world = new World({
 		seed: input.seed,
 		renderDistance: 6,
@@ -2637,71 +2639,115 @@ function createSim(input) {
 	world.loadAll();
 	const landmarks = new Landmarks();
 	const chat = new ChatLog();
+	for (const l of [...input.chat ?? []].sort((a, b) => a.at - b.at)) chat.say({
+		from: l.from,
+		text: l.text,
+		pos: l.pos,
+		t: (l.at - startedAt) / 1e3,
+		clock: ""
+	});
 	const clock = new WorldClock(null, void 0, now);
 	let simTime = 0;
-	const brain = new PlannedBrain();
+	const agents = /* @__PURE__ */ new Map();
+	const brains = /* @__PURE__ */ new Map();
+	const active = new Set(input.agents.filter((a) => a.active).map((a) => a.agentId));
 	const ctx = {
 		world,
 		exec: {
 			world,
 			landmarks,
-			bodies: () => [{
-				id: agent.id,
-				pos: agent.body.pos,
+			bodies: () => [...agents.values()].map((a) => ({
+				id: a.id,
+				pos: a.body.pos,
 				halfWidth: .35,
 				height: .95
-			}]
+			}))
 		},
 		perceive: {
 			world,
 			landmarks,
 			chat,
 			clock,
-			others: () => [],
+			others: () => [...agents.values()].map((a) => ({
+				id: a.id,
+				pos: a.body.pos,
+				doing: a.executor.doing
+			})),
 			now: 0,
 			areaAt: (x, z) => world.terrain.biomeAt(x, z)
 		}
 	};
-	const slot = Math.max(0, CAST.indexOf(member));
-	const spawn = world.terrain.spawnPoints(CAST.length)[slot];
-	const agent = new Agent(member, spawn, brain, ctx);
-	if (input.snapshot) restoreSnapshot(agent, input.snapshot, landmarks);
-	const [cx, cy, cz] = agent.body.cell;
-	if (world.isSolid(cx, cy, cz)) agent.body.teleport(agent.body.body.x, world.groundY(cx, cz), agent.body.body.z);
+	const spawns = world.terrain.spawnPoints(CAST.length);
+	for (const a of input.agents) {
+		const member = CAST.find((m) => m.id === a.agentId);
+		if (!member) throw new Error(`unknown agent ${a.agentId}`);
+		const brain = new PlannedBrain();
+		const agent = new Agent(member, spawns[Math.max(0, CAST.indexOf(member))], brain, ctx);
+		if (a.snapshot) restoreSnapshot(agent, a.snapshot, landmarks);
+		const [cx, cy, cz] = agent.body.cell;
+		if (world.isSolid(cx, cy, cz)) agent.body.teleport(agent.body.body.x, world.groundY(cx, cz), agent.body.body.z);
+		agents.set(a.agentId, agent);
+		brains.set(a.agentId, brain);
+	}
+	/** Lines said after this character's last think count as heard (seconds relative to the run). */
+	const heardSince = (id) => {
+		const snap = input.agents.find((a) => a.agentId === id)?.snapshot;
+		return snap?.lastThinkAt ? (snap.lastThinkAt - startedAt) / 1e3 : -600;
+	};
 	const edits = [];
-	world.onEdit = (e) => edits.push({
-		x: e.x,
-		y: e.y,
-		z: e.z,
-		id: e.id,
-		by: e.by
-	});
+	world.onEdit = (e) => {
+		if (active.has(e.by)) edits.push({
+			x: e.x,
+			y: e.y,
+			z: e.z,
+			id: e.id,
+			by: e.by
+		});
+	};
 	return {
-		agent,
-		perception() {
-			return perceive(agent.body, agent.executor.inventory, agent.executor.lastResult, simTime, {
+		agents,
+		perception(agentId) {
+			const agent = agents.get(agentId);
+			if (!agent) throw new Error(`no agent ${agentId}`);
+			return perceive(agent.body, agent.executor.inventory, agent.executor.lastResult, heardSince(agentId), {
 				...ctx.perceive,
 				now: simTime
 			});
 		},
-		run(response, seconds = 60) {
-			const results = [];
-			agent.executor.onResult = (r) => results.push({ ...r });
-			brain.plan = response;
-			brain.restThought = response?.thought ?? agent.thought;
+		run(plans, seconds = 60) {
+			const results = /* @__PURE__ */ new Map();
+			const walked = /* @__PURE__ */ new Map();
+			for (const [id, agent] of agents) {
+				const brain = brains.get(id);
+				const plan = active.has(id) ? plans[id] ?? null : null;
+				brain.plan = plan;
+				brain.restThought = plan?.thought ?? agent.thought;
+				results.set(id, []);
+				walked.set(id, 0);
+				agent.executor.onResult = (r) => results.get(id).push({ ...r });
+			}
 			const dt = 1 / 60;
-			let walked = 0;
 			for (let i = 0; i < Math.round(seconds / dt); i++) {
 				simTime += dt;
-				agent.tick(dt, simTime);
-				walked += Math.hypot(agent.body.pos.x - agent.body.prevPos.x, agent.body.pos.z - agent.body.prevPos.z);
+				for (const [id, agent] of agents) {
+					agent.tick(dt, simTime);
+					walked.set(id, walked.get(id) + Math.hypot(agent.body.pos.x - agent.body.prevPos.x, agent.body.pos.z - agent.body.prevPos.z));
+				}
 			}
-			return {
-				snapshot: takeSnapshot(agent, landmarks),
-				edits,
-				results,
-				walked
+			const out = {
+				agents: {},
+				edits
 			};
+			for (const id of active) {
+				const agent = agents.get(id);
+				if (!agent) continue;
+				out.agents[id] = {
+					snapshot: takeSnapshot(agent, landmarks, startedAt),
+					results: results.get(id),
+					walked: walked.get(id)
+				};
+			}
+			return out;
 		}
 	};
 }

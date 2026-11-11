@@ -35,6 +35,8 @@ export const SnapshotSchema = z.object({
   thought: z.string().max(400).default(''),
   /** Epoch ms of the thought (for the bubble). */
   thoughtAt: z.number().default(0),
+  /** Epoch ms of the last perception this character acted on — lines said after it count as "heard". */
+  lastThinkAt: z.number().default(0),
   say: z.string().max(140).nullable().default(null),
   sayAt: z.number().nullable().default(null),
   lastResult: z
@@ -52,7 +54,7 @@ export function parseSnapshot(raw: unknown): AgentSnapshot | null {
   return r.success ? r.data : null;
 }
 
-export function takeSnapshot(agent: Agent, landmarks: Landmarks): AgentSnapshot {
+export function takeSnapshot(agent: Agent, landmarks: Landmarks, lastThinkAt = Date.now()): AgentSnapshot {
   const b = agent.body.body;
   return {
     pos: [round(b.x), round(b.y), round(b.z)],
@@ -61,6 +63,7 @@ export function takeSnapshot(agent: Agent, landmarks: Landmarks): AgentSnapshot 
     landmarks: landmarks.list.slice(-50).map((l) => ({ name: l.name, pos: l.pos, by: l.by })),
     thought: agent.thought.slice(0, 400),
     thoughtAt: agent.thoughtAt,
+    lastThinkAt,
     say: agent.lastSay?.text.slice(0, 140) ?? null,
     sayAt: agent.lastSay?.at ?? null,
     lastResult: agent.executor.lastResult

@@ -84,17 +84,24 @@ const agentCtx = {
 // Brains: Clio (cat) thinks with an LLM via /api/agent/think (MiniMax M3.1 Flash; the server enforces a
 // shared daily budget and rate limit). If the API is unavailable Clio falls back to the script.
 // The others still run scripted brains (same JSON contract). ?brain=demo forces scripts for everyone.
-const llmAgents = new Set(new URLSearchParams(location.search).get('brain') === 'demo' ? [] : ['clio']);
+// Seconds between LLM thinks while a tab drives the character (Gem's Gemini free tier allows 500 calls a day).
+const LLM_THINK_GAP: Record<string, number> = { clio: 6, gem: 20 };
+const llmAgents = new Set(
+  new URLSearchParams(location.search).get('brain') === 'demo' ? [] : Object.keys(LLM_THINK_GAP),
+);
+const scripts = new Map<string, DemoBrain>();
 const agents: Agent[] = CAST.map((m, i) => {
   const s = spawns[i]!;
   const home: [number, number, number] = [Math.floor(s.x), Math.floor(s.y), Math.floor(s.z)];
   const mode = m.species === 'cat' || m.species === 'wolf' ? 'gather' : 'explore';
   const script = new DemoBrain(mode, home, Math.random, 25);
-  if (llmAgents.has(m.id)) return new Agent(m, s, new LlmBrain(m.id, script), agentCtx); // 6 s between thinks
+  scripts.set(m.id, script);
+  if (llmAgents.has(m.id)) return new Agent(m, s, new LlmBrain(m.id, script), agentCtx, LLM_THINK_GAP[m.id]);
   return new Agent(m, s, script, agentCtx, 1.5);
 });
 // Server-run characters are shared by everyone and keep living when nobody watches: the visible tab
-// holding the lease drives (LLM every ~6 s); other tabs mirror; the server ticks once a minute otherwise.
+// holding the lease drives (LLM_THINK_GAP); other tabs mirror; otherwise the server tick runs them
+// (Clio every minute, Gem every 4 minutes).
 // Only a tab whose game loop is really running may drive (see agents/sync.ts).
 let lastUpdateAt = 0;
 const simulating = () => document.visibilityState !== 'hidden' && performance.now() - lastUpdateAt < 2000;
@@ -103,7 +110,18 @@ const llmBrains = new Map<string, LlmBrain>();
 for (const a of agents) {
   if (!(a.brain instanceof LlmBrain)) continue;
   const brain = a.brain;
-  const sync = new AgentSync(a, landmarks, brain, undefined, undefined, undefined, simulating);
+  // Not server-run (provider key missing) → the character keeps its script, thinking every 1.5 s.
+  const sync = new AgentSync(
+    a,
+    landmarks,
+    brain,
+    undefined,
+    undefined,
+    undefined,
+    simulating,
+    scripts.get(a.id),
+    1.5,
+  );
   brain.clientId = sync.clientId;
   brain.onLostLease = () => sync.lostLease();
   syncs.set(a.id, sync);

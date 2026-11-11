@@ -58,6 +58,9 @@ export class AgentSync {
     private readonly fetchFn: typeof fetch = (...a) => fetch(...a),
     /** Is this tab actually simulating right now? (main.ts: visible AND the game loop ticked recently) */
     private readonly active: () => boolean = () => globalThis.document?.visibilityState !== 'hidden',
+    /** Brain for a character the server doesn't run (403: not switched on) — usually its script. */
+    private readonly localBrain: Brain = driverBrain,
+    private readonly localThinkGap = agent.thinkGap,
   ) {
     this.mirrorBrain = new MirrorBrain(agent);
     // Don't think until we know where the character really is.
@@ -96,6 +99,14 @@ export class AgentSync {
           release: !visible,
         }),
       });
+      if (res.status === 403 && this.role === 'starting') {
+        // This character isn't server-run (e.g. its provider key isn't configured): keep it local.
+        this.role = 'local';
+        this.agent.brain = this.localBrain;
+        this.agent.thinkGap = this.localThinkGap;
+        this.stop();
+        return;
+      }
       if (!res.ok) throw new Error(`state ${res.status}`);
       const data = (await res.json()) as { driver?: boolean; state?: unknown };
       const state = parseSnapshot(data.state);

@@ -47,7 +47,8 @@ export class Agent {
     spawn: { x: number; y: number; z: number },
     public brain: Brain,
     private readonly ctx: AgentContext,
-    private readonly thinkGap = DEFAULT_THINK_GAP,
+    /** Seconds between thinks (LLM brains are slower and cost money; scripts can think often). */
+    public thinkGap = DEFAULT_THINK_GAP,
   ) {
     this.body = new AgentBody(member, spawn);
     this.executor = new ActionExecutor(this.body, ctx.exec);

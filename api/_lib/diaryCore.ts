@@ -35,7 +35,6 @@ export async function handleDiary(req: Request, deps: ThinkDeps): Promise<Respon
   if (!cfg.dbSecret) return json({ error: 'not configured' }, 503);
   if (!safeEqual(req.headers.get('x-agent-secret') ?? '', cfg.dbSecret))
     return json({ error: 'forbidden' }, 403);
-  if (!cfg.apiKey) return json({ error: 'LLM key not configured' }, 503);
   const now = deps.now ?? Date.now;
   const body = (await req.json().catch(() => ({}))) as { date?: unknown; agentId?: unknown };
   const date =
@@ -65,12 +64,13 @@ export async function handleDiary(req: Request, deps: ThinkDeps): Promise<Respon
       let tokensOut = 0;
       let saved = false;
       for (let attempt = 0; attempt < 2 && !saved; attempt++) {
-        const reply = await chatCompletion(deps, cfg, messages, 3000, 45_000);
+        const brain = cfg.brains[agentId]!;
+        const reply = await chatCompletion(deps, brain, messages, 3000, 45_000);
         if (!reply.ok) {
           report.error = reply.error;
           break;
         }
-        cost += costOf(cfg, reply.usage);
+        cost += costOf(brain, reply.usage);
         tokensIn += reply.usage.prompt_tokens;
         tokensOut += reply.usage.completion_tokens;
         const parsed = parseDiaryReply(extractJson(reply.content), report.day, date);
@@ -89,7 +89,7 @@ export async function handleDiary(req: Request, deps: ThinkDeps): Promise<Respon
           p_game_day: report.day,
           p_content: parsed.diary,
           p_summary: parsed.memory,
-          p_model: cfg.model,
+          p_model: cfg.brains[agentId]!.model,
           p_input_tokens: tokensIn,
           p_output_tokens: tokensOut,
           p_cost: Number(cost.toFixed(6)),

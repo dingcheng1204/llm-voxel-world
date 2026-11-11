@@ -204,3 +204,21 @@ directly only for modules with no relative runtime imports (`personas.ts`, `prom
 - **Interests (≤5) and goals (≤3, new/in_progress/done)**: updated every night in the same model call as the diary
   (reply field `mind`), together with tidying the notes down to ≤30. An invalid `mind` is dropped (yesterday's
   stays); the diary is still saved. Prompt shows "Lately you are into: …" next to the persona's starting interests.
+
+## 12. Several brains (implemented)
+
+`api/_lib/thinkCore.ts` → `config().brains[agentId]`: provider, key, base URL, model, reasoning effort, prices,
+`maxPerDay` (per provider day; Gemini free tier resets at midnight Pacific) and `serverEveryMinutes`.
+A character is switched on only if it is in `AGENT_LLM_AGENTS` (default `clio,gem`) AND its key is set;
+otherwise `/api/agent/state` answers 403 and the browser keeps the character's script.
+
+| id | brain | key | browser gap | server cadence | cap |
+|---|---|---|---|---|---|
+| clio | MiniMax M3.1 Flash | `MINIMAX_API_KEY_1` | 6 s | every minute | daily USD budget |
+| gem | Gemini 3.1 Flash-Lite (free tier) | `GEMINI_API_KEY_1` | 20 s | every 4 min | 470 calls/day + USD budget |
+
+The server tick simulates all LLM characters in ONE world (`createSim({ agents: [...] })`): due + leased
+characters think (in parallel) and are saved; the others are puppets at their saved position. Say lines are
+written to `messages` by `agent_log_think` (with `heard_by`), and the tick loads the last 10 minutes so
+characters hear each other across ticks (`lastThinkAt` in the snapshot marks what is new).
+Gemini's OpenAI layer takes `max_tokens` (MiniMax: `max_completion_tokens`).

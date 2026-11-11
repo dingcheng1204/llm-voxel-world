@@ -134,7 +134,7 @@ describe('handleThink', () => {
           env: { AGENT_DB_SECRET: 's' },
         })
       ).status,
-    ).toBe(503);
+    ).toBe(403); // no key → the character isn't switched on at all
     expect(calls).toHaveLength(0);
   });
 

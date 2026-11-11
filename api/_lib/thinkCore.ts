@@ -33,25 +33,75 @@ export const json = (body: unknown, status = 200, extra: Record<string, string> 
 
 const MAX_BODY = 24_000;
 
+/** One LLM brain: which provider/model drives a character, its prices and its own limits. */
+export interface BrainConfig {
+  provider: 'minimax' | 'gemini';
+  apiKey: string | undefined;
+  baseUrl: string;
+  model: string;
+  effort: string;
+  /** USD per 1M tokens (0 for free tiers). */
+  priceIn: number;
+  priceCached: number;
+  priceOut: number;
+  /** Max calls per provider day (Gemini free tier resets at midnight Pacific); null = no per-agent cap. */
+  maxPerDay: number | null;
+  /** The server tick thinks for this character every N minutes when nobody watches. */
+  serverEveryMinutes: number;
+  /** Output token limit for a think (includes reasoning tokens). */
+  maxTokens: number;
+}
+
 export function config(env: Record<string, string | undefined>) {
   const num = (v: string | undefined, d: number) =>
     v !== undefined && Number.isFinite(Number(v)) ? Number(v) : d;
+  const trim = (u: string) => u.replace(/\/$/, '');
+  const brains: Record<string, BrainConfig> = {
+    // Clio — MiniMax M3.1 Flash (M Plan subscription key). Prices are list prices, used as an estimate.
+    clio: {
+      provider: 'minimax',
+      apiKey: env.MINIMAX_API_KEY_1 ?? env.MINIMAX_API_KEY,
+      baseUrl: trim(env.AGENT_BASE_URL ?? 'https://api.minimax.io/v1'),
+      model: env.AGENT_MODEL ?? 'MiniMax-M3.1-Flash',
+      effort: env.AGENT_REASONING_EFFORT ?? 'low',
+      priceIn: num(env.AGENT_PRICE_IN, 0.15),
+      priceCached: num(env.AGENT_PRICE_CACHED, 0.015),
+      priceOut: num(env.AGENT_PRICE_OUT, 0.6),
+      maxPerDay: null,
+      serverEveryMinutes: 1,
+      maxTokens: 1500,
+    },
+    // Gem — Gemini 3.1 Flash-Lite on the free tier (no billing account → can never be charged).
+    // Free tier: 15 RPM, 500 requests per day (resets midnight Pacific) → think cap 470, rest for diaries.
+    gem: {
+      provider: 'gemini',
+      apiKey: env.GEMINI_API_KEY_1 ?? env.GEMINI_API_KEY,
+      baseUrl: trim(env.GEM_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai'),
+      model: env.GEM_MODEL ?? 'gemini-3.1-flash-lite',
+      effort: env.GEM_REASONING_EFFORT ?? 'low',
+      priceIn: num(env.GEM_PRICE_IN, 0),
+      priceCached: 0,
+      priceOut: num(env.GEM_PRICE_OUT, 0),
+      maxPerDay: num(env.GEM_MAX_CALLS_PER_DAY, 470),
+      serverEveryMinutes: Math.max(1, num(env.GEM_SERVER_EVERY_MIN, 4)),
+      maxTokens: 2000,
+    },
+  };
+  const listed = (env.AGENT_LLM_AGENTS ?? 'clio,gem')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const clio = brains.clio!;
   return {
-    apiKey: env.MINIMAX_API_KEY_1 ?? env.MINIMAX_API_KEY,
-    baseUrl: (env.AGENT_BASE_URL ?? 'https://api.minimax.io/v1').replace(/\/$/, ''),
-    model: env.AGENT_MODEL ?? 'MiniMax-M3.1-Flash',
-    effort: env.AGENT_REASONING_EFFORT ?? 'low',
+    brains,
+    // Legacy single-brain fields (Clio's) — kept for callers/tests that predate multiple brains.
+    apiKey: clio.apiKey,
+    model: clio.model,
     dbSecret: env.AGENT_DB_SECRET,
     dailyBudget: num(env.AGENT_DAILY_BUDGET_USD, 0.5),
     maxPerMinute: num(env.AGENT_MAX_CALLS_PER_MIN, 20),
-    agents: (env.AGENT_LLM_AGENTS ?? 'clio')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-    // USD per 1M tokens (MiniMax M3.1 Flash list price).
-    priceIn: num(env.AGENT_PRICE_IN, 0.15),
-    priceCached: num(env.AGENT_PRICE_CACHED, 0.015),
-    priceOut: num(env.AGENT_PRICE_OUT, 0.6),
+    /** LLM characters that are switched on: listed AND their provider key is configured. */
+    agents: listed.filter((id) => brains[id]?.apiKey),
     supabaseUrl: env.SUPABASE_URL ?? SUPABASE_URL,
     supabaseKey: env.SUPABASE_ANON_KEY ?? SUPABASE_ANON_KEY,
   };
@@ -86,6 +136,20 @@ export function secondsUntilTaipeiMidnight(nowMs: number): number {
   return Math.ceil((next - taipei) / 1000);
 }
 
+/** Seconds until the next midnight in America/Los_Angeles (when Gemini free-tier daily quotas reset). */
+export function secondsUntilPacificMidnight(nowMs: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(nowMs));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0) % 24;
+  const elapsed = get('hour') * 3600 + get('minute') * 60 + get('second');
+  return Math.max(60, 86_400 - elapsed);
+}
+
 /** Pull the JSON object out of a model reply (handles ```json fences and stray text). */
 export function extractJson(text: string): unknown {
   const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
@@ -108,7 +172,7 @@ export interface Usage {
 }
 
 /** USD for one call at the configured per-1M-token prices. */
-export function costOf(cfg: Config, usage: Usage): number {
+export function costOf(cfg: Pick<BrainConfig, 'priceIn' | 'priceCached' | 'priceOut'>, usage: Usage): number {
   const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
   return (
     ((usage.prompt_tokens - cached) * cfg.priceIn +
@@ -121,7 +185,7 @@ export function costOf(cfg: Config, usage: Usage): number {
 /** One OpenAI-compatible chat completion (MiniMax). Never throws. */
 export async function chatCompletion(
   deps: ThinkDeps,
-  cfg: Config,
+  cfg: BrainConfig,
   messages: ChatMessage[],
   maxTokens: number,
   timeoutMs = 25_000,
@@ -135,7 +199,8 @@ export async function chatCompletion(
         model: cfg.model,
         messages,
         reasoning_effort: cfg.effort,
-        max_completion_tokens: maxTokens,
+        // Gemini's OpenAI layer takes max_tokens; MiniMax uses max_completion_tokens (both include reasoning).
+        ...(cfg.provider === 'gemini' ? { max_tokens: maxTokens } : { max_completion_tokens: maxTokens }),
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -184,8 +249,10 @@ export async function runThink(
   if (!persona || !cfg.agents.includes(agentId))
     return { ok: false, status: 403, error: `no LLM brain for "${agentId}"` };
 
+  const brain = cfg.brains[agentId]!;
+
   // --- fail closed without keys ---
-  if (!cfg.apiKey) return { ok: false, status: 503, error: 'LLM key not configured' };
+  if (!brain.apiKey) return { ok: false, status: 503, error: 'LLM key not configured' };
   if (!cfg.dbSecret)
     return { ok: false, status: 503, error: 'budget guard not configured (AGENT_DB_SECRET)' };
 
@@ -197,6 +264,8 @@ export async function runThink(
     recent?: MemoryEvent[];
     diaries?: DiaryMemory[];
     mind?: unknown;
+    /** This character's calls since midnight Pacific (provider day for Gemini's free tier). */
+    agent_calls_pt_day?: number;
   };
   try {
     budget = await rpc(deps, cfg, 'agent_context', {
@@ -215,6 +284,14 @@ export async function runThink(
       retryAfter: secondsUntilTaipeiMidnight(now()),
     };
   }
+  if (brain.maxPerDay !== null && Number(budget.agent_calls_pt_day ?? 0) >= brain.maxPerDay) {
+    return {
+      ok: false,
+      status: 429,
+      error: 'daily quota reached',
+      retryAfter: secondsUntilPacificMidnight(now()),
+    };
+  }
   if (budget.calls_last_minute >= cfg.maxPerMinute) {
     return { ok: false, status: 429, error: 'too many thinks right now', retryAfter: 20 };
   }
@@ -230,13 +307,13 @@ export async function runThink(
   };
   const messages = buildMessages(persona, others, perception, retryError, memory);
   const started = now();
-  const reply = await chatCompletion(deps, cfg, messages, 1500);
+  const reply = await chatCompletion(deps, brain, messages, brain.maxTokens);
   if (!reply.ok) return reply;
   const { content, usage } = reply;
 
   // --- account + log ---
   const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
-  const cost = costOf(cfg, usage);
+  const cost = costOf(brain, usage);
   const parsed = extractJson(content) as {
     thought?: string;
     say?: string | null;
@@ -257,7 +334,7 @@ export async function runThink(
     await rpc(deps, cfg, 'agent_log_think', {
       p_secret: cfg.dbSecret,
       p_agent: agentId,
-      p_model: cfg.model,
+      p_model: brain.model,
       p_input_tokens: usage.prompt_tokens,
       p_output_tokens: usage.completion_tokens,
       p_cost: Number(cost.toFixed(6)),
@@ -315,7 +392,7 @@ export async function handleThink(req: Request, deps: ThinkDeps): Promise<Respon
   const clientId = typeof body.clientId === 'string' ? body.clientId : '';
   if (!/^[\w-]{8,64}$/.test(clientId)) return json({ error: 'missing clientId' }, 400);
   const retryError = typeof body.retryError === 'string' ? body.retryError.slice(0, 500) : undefined;
-  if (!cfg.apiKey) return json({ error: 'LLM key not configured' }, 503);
+  if (!cfg.brains[agentId]?.apiKey) return json({ error: 'LLM key not configured' }, 503);
   if (!cfg.dbSecret) return json({ error: 'budget guard not configured (AGENT_DB_SECRET)' }, 503);
 
   // --- only the tab that holds the lease may think for this character ---
