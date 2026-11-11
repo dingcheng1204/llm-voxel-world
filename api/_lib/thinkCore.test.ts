@@ -24,6 +24,7 @@ export function fakeFetch(
     leaseHeld?: boolean;
     recent?: unknown[];
     diaries?: unknown[];
+    mind?: unknown;
   } = {},
 ) {
   const calls: { url: string; body: unknown }[] = [];
@@ -37,10 +38,12 @@ export function fakeFetch(
           calls_last_minute: opts.calls ?? 0,
           recent: opts.recent ?? [],
           diaries: opts.diaries ?? [],
+          mind: opts.mind ?? null,
         }),
       );
     }
     if (url.endsWith('/rpc/agent_log_think')) return new Response('');
+    if (url.endsWith('/rpc/agent_learn')) return new Response('true');
     if (url.endsWith('/rpc/agent_state_sync')) {
       return new Response(JSON.stringify({ driver: !opts.leaseHeld, state: {}, updated_at: null }));
     }
@@ -227,5 +230,51 @@ describe('memory in the prompt', () => {
     expect(user!.content.indexOf('走向玩具')).toBeLessThan(user!.content.indexOf('看看藍色方塊'));
     expect(user!.content).toContain('walk_to [3,23,29]');
     expect(user!.content).toContain('(plaza)');
+  });
+});
+
+describe('mind', () => {
+  it('shows notes, interests and goals in the prompt', async () => {
+    const { f, calls } = fakeFetch({
+      mind: {
+        knowledge: [{ text: '火山口有岩漿，很燙', at: '2026-11-11T03:00:00Z' }],
+        interests: ['玩具方塊的顏色'],
+        goals: [
+          { goal: '把藍色方塊小徑走到盡頭', status: 'in_progress' },
+          { goal: '拜訪森林', status: 'new' },
+        ],
+      },
+    });
+    await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), { fetch: f, env });
+    const sys = (
+      calls.find((c) => c.url.endsWith('/chat/completions'))!.body as { messages: { content: string }[] }
+    ).messages[0]!.content;
+    expect(sys).toContain('- 火山口有岩漿，很燙');
+    expect(sys).toContain('Lately you are into: 玩具方塊的顏色.');
+    expect(sys.indexOf('[in progress] 把藍色方塊小徑')).toBeLessThan(sys.indexOf('[new] 拜訪森林'));
+  });
+
+  it('stores a learned note and logs it', async () => {
+    const { f, calls } = fakeFetch({
+      reply: '{"thought":"原來如此","say":null,"learn":"湖邊的沙子下面是礫石","actions":[{"type":"idle"}]}',
+    });
+    const res = await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
+      fetch: f,
+      env,
+    });
+    expect(res.status).toBe(200);
+    expect(calls.find((c) => c.url.endsWith('/rpc/agent_learn'))!.body).toMatchObject({
+      p_text: '湖邊的沙子下面是礫石',
+    });
+    const log = calls.find((c) => c.url.endsWith('/rpc/agent_log_think'))!.body as {
+      p_payload: { learn?: string };
+    };
+    expect(log.p_payload.learn).toBe('湖邊的沙子下面是礫石');
+  });
+
+  it('does not call agent_learn when nothing was learned', async () => {
+    const { f, calls } = fakeFetch();
+    await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), { fetch: f, env });
+    expect(calls.some((c) => c.url.endsWith('/rpc/agent_learn'))).toBe(false);
   });
 });

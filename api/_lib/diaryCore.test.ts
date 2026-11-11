@@ -126,3 +126,67 @@ describe('handleDiary', () => {
     expect(taipeiDate(Date.parse('2026-11-11T16:30:00Z'))).toBe('2026-11-12');
   });
 });
+
+describe('nightly mind update', () => {
+  const req = () =>
+    new Request('http://x/api/agent/diary', {
+      method: 'POST',
+      headers: { 'x-agent-secret': 's' },
+      body: '{}',
+    });
+  function run(reply: unknown) {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      calls.push({ url, body });
+      if (url.endsWith('/rpc/agent_diary_input'))
+        return new Response(
+          JSON.stringify({
+            day: 3,
+            previous: null,
+            events: events(20),
+            messages: [],
+            mind: {
+              knowledge: [{ text: '營火在廣場', at: '2026-11-10T03:00:00Z' }],
+              interests: [],
+              goals: [],
+            },
+          }),
+        );
+      if (url.includes('/rpc/')) return new Response('');
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(reply) } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+      );
+    }) as unknown as typeof fetch;
+    return handleDiary(req(), { fetch: f, env }).then(async (r) => ({ data: await r.json(), calls }));
+  }
+
+  it('saves tidied notes (keeping when old notes were learned), interests and goals', async () => {
+    const { data, calls } = await run({
+      diary: DIARY_MD,
+      memory: '明天去森林',
+      mind: {
+        knowledge: ['營火在廣場', '藍色方塊在夜裡更亮'],
+        interests: ['玩具方塊的顏色', '夜晚的光'],
+        goals: [{ goal: '走到藍色方塊小徑的盡頭', status: 'new' }],
+      },
+    });
+    expect(data.reports[0]).toMatchObject({ notes: 2, interests: ['玩具方塊的顏色', '夜晚的光'] });
+    const save = calls.find((c) => c.url.endsWith('/rpc/agent_save_mind'))!.body as {
+      p_knowledge: { text: string; at: string }[];
+    };
+    expect(save.p_knowledge[0]).toEqual({ text: '營火在廣場', at: '2026-11-10T03:00:00Z' });
+    expect(save.p_knowledge[1]!.text).toBe('藍色方塊在夜裡更亮');
+  });
+
+  it('still saves the diary when the mind part is invalid', async () => {
+    const { data, calls } = await run({ diary: DIARY_MD, memory: '明天去森林', mind: { knowledge: 'oops' } });
+    expect(data.reports[0].error).toBeUndefined();
+    expect(data.reports[0].mindError).toBeTruthy();
+    expect(calls.some((c) => c.url.endsWith('/rpc/agent_save_diary'))).toBe(true);
+    expect(calls.some((c) => c.url.endsWith('/rpc/agent_save_mind'))).toBe(false);
+  });
+});

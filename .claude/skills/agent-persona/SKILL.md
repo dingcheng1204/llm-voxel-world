@@ -194,3 +194,13 @@ directly only for modules with no relative runtime imports (`personas.ts`, `prom
   the day's events are compressed by `buildDigest` (areas, named places, actions, failures, words, sampled
   thoughts), the model returns JSON `{diary, memory}`, headings are validated and our own title
   `# 第 N 天 · YYYY-MM-DD` is added (N = the character's Nth diary). Re-running for the same date overwrites.
+
+## 11. Mind: knowledge, interests, goals (implemented)
+
+`agent_mind` (`src/agents/mind.ts`) is the part of a character that grows; the persona never changes.
+- **Knowledge notes**: a think may include `"learn": "short fact"` (optional, usually null). `runThink` stores it via
+  `agent_learn` (exact duplicates ignored, max one note per 3 minutes, newest 40 kept). The newest 12 are shown in
+  the system prompt.
+- **Interests (≤5) and goals (≤3, new/in_progress/done)**: updated every night in the same model call as the diary
+  (reply field `mind`), together with tidying the notes down to ≤30. An invalid `mind` is dropped (yesterday's
+  stays); the diary is still saved. Prompt shows "Lately you are into: …" next to the persona's starting interests.

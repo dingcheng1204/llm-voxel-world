@@ -424,6 +424,8 @@ const ActionSchema = z.discriminatedUnion("type", [
 const AgentResponseSchema = z.object({
 	thought: z.string().max(400),
 	say: z.string().max(140).nullable().optional(),
+	/** Optional note for the character's knowledge ("something I just figured out"), stored server-side. */
+	learn: z.string().max(140).nullable().optional(),
 	actions: z.array(ActionSchema).max(3)
 });
 /** Parse untrusted brain output (string or object). Returns the error text for the retry prompt. */

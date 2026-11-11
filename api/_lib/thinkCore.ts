@@ -16,6 +16,7 @@ import {
   type DiaryMemory,
   type MemoryEvent,
 } from '../../src/agents/memory.js';
+import { cleanLearned, formatMind, parseMind } from '../../src/agents/mind.js';
 import type { Perception } from '../../src/agents/perceive.js';
 
 export interface ThinkDeps {
@@ -195,6 +196,7 @@ export async function runThink(
     calls_last_minute: number;
     recent?: MemoryEvent[];
     diaries?: DiaryMemory[];
+    mind?: unknown;
   };
   try {
     budget = await rpc(deps, cfg, 'agent_context', {
@@ -224,6 +226,7 @@ export async function runThink(
   const memory = {
     diaries: formatDiaries(budget.diaries ?? []),
     recent: formatRecent(budget.recent ?? [], now()),
+    ...formatMind(parseMind(budget.mind)),
   };
   const messages = buildMessages(persona, others, perception, retryError, memory);
   const started = now();
@@ -237,8 +240,19 @@ export async function runThink(
   const parsed = extractJson(content) as {
     thought?: string;
     say?: string | null;
+    learn?: string | null;
     actions?: unknown[];
   } | null;
+  // Something new learned → the character's knowledge notes (deduplicated / rate-limited in the DB).
+  const learned = cleanLearned(parsed?.learn);
+  let learnedSaved = false;
+  if (learned) {
+    learnedSaved = await rpc<boolean>(deps, cfg, 'agent_learn', {
+      p_secret: cfg.dbSecret,
+      p_agent: agentId,
+      p_text: learned,
+    }).catch(() => false);
+  }
   try {
     await rpc(deps, cfg, 'agent_log_think', {
       p_secret: cfg.dbSecret,
@@ -251,6 +265,7 @@ export async function runThink(
       p_payload: {
         thought: parsed?.thought ?? null,
         say: parsed?.say ?? null,
+        ...(learnedSaved ? { learn: learned } : {}),
         actions: parsed?.actions ?? null,
         last_result: perception.last_action_result ?? null,
         pos: perception.self.pos,

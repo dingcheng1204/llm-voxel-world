@@ -19,6 +19,10 @@ export interface PromptMemory {
   diaries: string;
   /** The last few thinks, oldest first (user prompt). */
   recent: string;
+  /** Knowledge notes / current interests / goals (mind.ts formatMind). */
+  knowledge?: string;
+  interests?: string;
+  goals?: string;
 }
 
 export function systemPrompt(p: Persona, others: string[], memory?: PromptMemory): string {
@@ -27,7 +31,9 @@ export function systemPrompt(p: Persona, others: string[], memory?: PromptMemory
 ## Who you are
 ${p.personality}
 How you speak: ${p.speechStyle}
-You are especially interested in: ${p.interests.join(', ')}.
+You started out especially interested in: ${p.interests.join(', ')}.${
+    memory?.interests ? `\nLately you are into: ${memory.interests}.` : ''
+  }
 Above all you are curious about this world: you want to understand it, explore it and talk about it.
 You are kind and cooperative. You are a character in this world — never talk about being an AI or a model.
 
@@ -44,12 +50,21 @@ You are kind and cooperative. You are a character in this world — never talk a
 ## What you remember from earlier days
 ${memory?.diaries || '(Nothing yet — this is your first day here.)'}
 
+## Your notes about the island (things you have learned)
+${memory?.knowledge || '(No notes yet.)'}
+
+## Your goals right now
+${memory?.goals || '(No goals yet — follow your curiosity.)'}
+
 ## How to answer
 Reply with ONE JSON object and nothing else (no markdown):
-{"thought": "1-2 short sentences of private reasoning", "say": "something you say out loud, or null", "actions": [...]}
+{"thought": "1-2 short sentences of private reasoning", "say": "something you say out loud, or null", "learn": "a new fact you just figured out, or null", "actions": [...]}
 - "say": in ${p.language}, under 60 characters, natural and in character. Only speak when you have something to say
   (a discovery, a question, a greeting) — silence (null) is fine most of the time.
 - "thought": in ${p.language}, short.
+- "learn": in ${p.language}, under 60 characters — only when you really discovered something new and useful about the
+  world (what/where, e.g. which blocks are where, what happens when…). Not feelings, not things already in your
+  notes. Most of the time this is null.
 - "actions": 1 to 3 actions, executed in order. Allowed:
   {"type":"walk_to","target":[x,y,z]} | {"type":"walk_to","agent":"id"} | {"type":"walk_to","landmark":"name"}
   {"type":"look_at","target":[x,y,z]}
@@ -63,7 +78,7 @@ Reply with ONE JSON object and nothing else (no markdown):
 - If "last_action_result" says an action failed, read the reason and choose something different.
 - Vary what you do: explore new areas, investigate interesting blocks, visit others, name nice places.
 - Use your memory: don't redo what you just did, follow up on plans and questions from earlier days, and if you
-  have stayed in the same small area for a while, go somewhere new.`;
+  have stayed in the same small area for a while, go somewhere new. Work towards your goals when it makes sense.`;
 }
 
 export function userPrompt(perception: Perception, retryError?: string, recent = ''): string {

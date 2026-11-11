@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { describeAction, type MemoryEvent } from './memory.js';
+import { MAX_GOALS, MAX_INTERESTS, MAX_KNOWLEDGE, MindUpdateSchema, parseMind, type Mind } from './mind.js';
 import type { Persona } from './personas.js';
 import type { ChatMessage } from './prompt.js';
 
@@ -13,8 +14,10 @@ export interface DiaryInput {
   /** This will be the character's Nth diary. */
   day: number;
   previous: { date: string; content: string } | null;
-  events: MemoryEvent[];
+  events: (MemoryEvent & { learn?: string | null })[];
   messages: { at: string; speaker: string; text: string }[];
+  /** Current knowledge / interests / goals (tidied and updated by tonight's call). */
+  mind?: unknown;
 }
 
 export const DIARY_HEADINGS = [
@@ -82,6 +85,8 @@ export function buildDigest(input: DiaryInput): string {
         .join(', ')}.`,
     );
   if (named.length) lines.push(`Places you named: ${[...new Set(named)].slice(0, 12).join(', ')}.`);
+  const learned = ev.filter((e) => e.learn).map((e) => `- ${hhmm(e.at)} ${clip(e.learn!, 100)}`);
+  if (learned.length) lines.push(`Notes you wrote down today:\n${learned.slice(-15).join('\n')}`);
   const failures = [
     ...new Set(
       ev
@@ -134,10 +139,26 @@ Rules:
 - Feelings, guesses and open questions are welcome. Refer to areas and place names, not raw coordinates.
 - You are a character in this world — never mention being an AI, a model, a log or "events".
 
-Reply with ONE JSON object and nothing else:
-{"diary": "the Markdown diary (headings above; no title line)", "memory": "1–2 sentences in ${p.language}, at most 120 characters: what you most want to remember tomorrow (a discovery, an open question, a plan)"}`;
+After writing, also tidy up your mind for tomorrow ("mind" in the reply):
+- "knowledge": your notes about the island, at most ${MAX_KNOWLEDGE}. Keep true, useful facts (what is where, what happens
+  when…), merge duplicates, drop trivial or wrong ones, add today's real discoveries. Short (under 60 characters each),
+  in ${p.language}.
+- "interests": what you are into lately, 2–${MAX_INTERESTS} short phrases in ${p.language}. Let them change slowly with
+  what fascinated you today; you stay curious and kind at heart.
+- "goals": up to ${MAX_GOALS} concrete things you want to do on this island with your abilities (walk, look, mine, place
+  blocks, name places, visit others), in ${p.language}, each with status "new", "in_progress" or "done". Keep goals you
+  are still working on, mark finished ones "done" (drop them the next night), add new ones from today's questions.
 
-  const user = `${input.previous ? `Yesterday's entry (${input.previous.date}):\n${input.previous.content}\n\n` : 'This is your first diary entry.\n\n'}Today's log (${date}):\n${buildDigest(input)}\n\nWrite today's diary now. JSON only.`;
+Reply with ONE JSON object and nothing else:
+{"diary": "the Markdown diary (headings above; no title line)", "memory": "1–2 sentences in ${p.language}, at most 120 characters: what you most want to remember tomorrow (a discovery, an open question, a plan)", "mind": {"knowledge": ["…"], "interests": ["…"], "goals": [{"goal": "…", "status": "new"}]}}`;
+
+  const mind = parseMind(input.mind);
+  const mindText = mind
+    ? `Your mind before today:\nNotes:\n${mind.knowledge.map((k) => `- ${k.text}`).join('\n') || '(none)'}\nInterests: ${
+        mind.interests.join(', ') || p.interests.join(', ')
+      }\nGoals:\n${mind.goals.map((g) => `- [${g.status}] ${g.goal}`).join('\n') || '(none)'}\n\n`
+    : `Your mind before today: no notes or goals yet. Your starting interests: ${p.interests.join(', ')}.\n\n`;
+  const user = `${mindText}${input.previous ? `Yesterday's entry (${input.previous.date}):\n${input.previous.content}\n\n` : 'This is your first diary entry.\n\n'}Today's log (${date}):\n${buildDigest(input)}\n\nWrite today's diary now. JSON only.`;
   return [
     { role: 'system', content: system },
     { role: 'user', content: user },
@@ -149,7 +170,15 @@ const ReplySchema = z.object({
   memory: z.string().min(4).max(240),
 });
 
-export type DiaryReply = { ok: true; diary: string; memory: string } | { ok: false; error: string };
+export interface MindUpdate {
+  knowledge: string[];
+  interests: string[];
+  goals: Mind['goals'];
+}
+
+export type DiaryReply =
+  | { ok: true; diary: string; memory: string; mind: MindUpdate | null; mindError?: string }
+  | { ok: false; error: string };
 
 /** Validate the model output; puts our own title line on top (`# 第 N 天 · YYYY-MM-DD`). */
 export function parseDiaryReply(raw: unknown, day: number, date: string): DiaryReply {
@@ -163,9 +192,21 @@ export function parseDiaryReply(raw: unknown, day: number, date: string): DiaryR
   const missing = DIARY_HEADINGS.filter((h) => !body.includes(`## ${h}`));
   if (missing.length)
     return { ok: false, error: `missing headings: ${missing.map((h) => `## ${h}`).join(', ')}` };
+  // The mind update is optional: a bad one is dropped (yesterday's mind stays); the diary is still saved.
+  const m = MindUpdateSchema.safeParse((raw as { mind?: unknown }).mind);
   return {
     ok: true,
     diary: `# 第 ${day} 天 · ${date}\n\n${body}\n`,
     memory: r.data.memory.trim().slice(0, 200),
+    mind: m.success
+      ? {
+          knowledge: [...new Set(m.data.knowledge.map((k) => k.trim()).filter(Boolean))],
+          interests: m.data.interests.map((i) => i.trim()).filter(Boolean),
+          goals: m.data.goals,
+        }
+      : null,
+    ...(m.success
+      ? {}
+      : { mindError: m.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') }),
   };
 }

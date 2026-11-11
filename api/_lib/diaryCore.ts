@@ -6,6 +6,7 @@
 // (one call per character per day, ~US$0.001), so memory never has gaps.
 
 import { diaryMessages, parseDiaryReply, type DiaryInput } from '../../src/agents/diary.js';
+import { parseMind } from '../../src/agents/mind.js';
 import { PERSONAS } from '../../src/agents/personas.js';
 import { chatCompletion, config, costOf, extractJson, json, rpc, type ThinkDeps } from './thinkCore.js';
 import { safeEqual } from './tickCore.js';
@@ -20,6 +21,11 @@ export interface DiaryReport {
   error?: string;
   day?: number;
   memory?: string;
+  /** Interests/goals after tonight's update (or why the update was skipped). */
+  interests?: string[];
+  goals?: { goal: string; status: string }[];
+  notes?: number;
+  mindError?: string;
   cost?: number;
 }
 
@@ -91,6 +97,23 @@ export async function handleDiary(req: Request, deps: ThinkDeps): Promise<Respon
         saved = true;
         report.error = undefined;
         report.memory = parsed.memory;
+        if (parsed.mind) {
+          // Keep when each surviving note was first learned.
+          const before = new Map((parseMind(input.mind)?.knowledge ?? []).map((k) => [k.text, k.at]));
+          const stamp = new Date(now()).toISOString();
+          await rpc(deps, cfg, 'agent_save_mind', {
+            p_secret: cfg.dbSecret,
+            p_agent: agentId,
+            p_knowledge: parsed.mind.knowledge.map((text) => ({ text, at: before.get(text) ?? stamp })),
+            p_interests: parsed.mind.interests,
+            p_goals: parsed.mind.goals,
+          });
+          report.interests = parsed.mind.interests;
+          report.goals = parsed.mind.goals;
+          report.notes = parsed.mind.knowledge.length;
+        } else {
+          report.mindError = parsed.mindError;
+        }
       }
       report.cost = cost;
     } catch (err) {
