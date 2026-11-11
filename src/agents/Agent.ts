@@ -109,8 +109,11 @@ export class Agent {
   }
 
   private apply(value: AgentResponse, simTime: number): void {
-    this.thought = value.thought;
-    this.thoughtAt = Date.now();
+    // A mirrored/resting character repeats its thought — keep the original bubble time then.
+    if (value.thought && value.thought !== this.thought) {
+      this.thought = value.thought;
+      this.thoughtAt = Date.now();
+    }
     this.log('think', { thought: value.thought, actions: value.actions });
     if (value.say) {
       const [x, y, z] = this.body.cell;

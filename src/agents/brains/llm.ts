@@ -33,6 +33,10 @@ export class LlmBrain implements Brain {
     lastError: null,
   };
   private pauseUntil = 0;
+  /** This tab's id for the driver lease (see agents/sync.ts). */
+  clientId = '';
+  /** Called when the server says another simulator is driving this character. */
+  onLostLease: () => void = () => {};
 
   constructor(
     private readonly agentId: string,
@@ -50,7 +54,7 @@ export class LlmBrain implements Brain {
       const res = await this.fetchFn(this.endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: this.agentId, perception: p, retryError }),
+        body: JSON.stringify({ agentId: this.agentId, clientId: this.clientId, perception: p, retryError }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         raw?: unknown;
@@ -61,6 +65,11 @@ export class LlmBrain implements Brain {
         error?: string;
         retryAfter?: number;
       };
+      if (res.status === 409) {
+        // Another tab (or the server tick) is driving: stop and let the sync mirror it.
+        this.onLostLease();
+        return WAIT;
+      }
       if (res.status === 429) {
         // Out of budget (until midnight) or rate-limited (a few seconds): sleep, don't spend.
         this.stats.mode = 'sleeping';
@@ -88,4 +97,5 @@ export class LlmBrain implements Brain {
   }
 }
 
+const WAIT: AgentResponse = { thought: '', say: null, actions: [{ type: 'wait', seconds: 5 }] };
 const SLEEP: AgentResponse = { thought: 'Zzz…', say: null, actions: [{ type: 'wait', seconds: 30 }] };

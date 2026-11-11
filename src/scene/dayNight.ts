@@ -2,45 +2,15 @@ import * as THREE from 'three';
 import { blockLighting, MAX_LIGHTS } from '../world/blockMaterials';
 import type { BlockPos } from '../world/world';
 import type { Environment } from './environment';
+import { DAY_SECONDS, WorldClock } from './clock';
 
-/** Real seconds per in-game day (ROADMAP: 1 game day = 20 minutes). */
-export const DAY_SECONDS = 20 * 60;
+export { DAY_SECONDS, WorldClock };
 
 /**
  * Shared world clock derived from real time, so every visitor (and, later, every AI agent on the
  * server) sees the same time of day and the same day number.
  *   t = 0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset.
  */
-export class WorldClock {
-  /** Fixed time of day for screenshots/tests (?time=0.8), otherwise null. */
-  constructor(
-    private readonly fixed: number | null = null,
-    private readonly daySeconds = DAY_SECONDS,
-    private readonly now: () => number = () => Date.now(),
-  ) {}
-
-  private get total(): number {
-    if (this.fixed !== null) return this.fixed;
-    return this.now() / 1000 / this.daySeconds + 0.35; // offset: pick a pleasant phase for epoch 0
-  }
-
-  /** Time of day in [0, 1). */
-  get t(): number {
-    const v = this.total;
-    return v - Math.floor(v);
-  }
-
-  /** Whole in-game days since the epoch (used for diaries later). */
-  get day(): number {
-    return Math.floor(this.total);
-  }
-
-  /** "HH:MM" in-game. */
-  get clock(): string {
-    const minutes = Math.floor(this.t * 24 * 60);
-    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-  }
-}
 
 interface Key {
   t: number;

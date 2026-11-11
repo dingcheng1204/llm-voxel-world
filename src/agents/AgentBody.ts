@@ -62,6 +62,20 @@ export class AgentBody {
     return out.set(this.body.x, this.body.y + AGENT_BODY.eye, this.body.z);
   }
 
+  /** Jump straight to a position (restoring a saved state / catching up with the server). */
+  teleport(x: number, y: number, z: number, heading = this.heading): void {
+    const b = this.body;
+    b.x = x;
+    b.y = y;
+    b.z = z;
+    b.vx = b.vy = b.vz = 0;
+    this.pos.set(x, y, z);
+    this.prevPos.copy(this.pos);
+    this.heading = this.prevHeading = heading;
+    this.faceTarget = null;
+    this.steer(0, 0);
+  }
+
   /** Walk in a direction (normalised x/z, or 0,0 to stop) this tick. */
   steer(x: number, z: number, jump = false): void {
     this.wishX = x;

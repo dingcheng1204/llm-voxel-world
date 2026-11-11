@@ -11,6 +11,7 @@ import { Agent } from './agents/Agent';
 import { AgentView } from './agents/AgentView';
 import { DemoBrain } from './agents/brains/demo';
 import { LlmBrain } from './agents/brains/llm';
+import { AgentSync } from './agents/sync';
 import { CAST } from './agents/cast';
 import { ChatLog, Landmarks } from './agents/worldState';
 import { Hotbar } from './player/hotbar';
@@ -91,6 +92,21 @@ const agents: Agent[] = CAST.map((m, i) => {
   if (llmAgents.has(m.id)) return new Agent(m, s, new LlmBrain(m.id, script), agentCtx); // 6 s between thinks
   return new Agent(m, s, script, agentCtx, 1.5);
 });
+// Server-run characters are shared by everyone and keep living when nobody watches: the visible tab
+// holding the lease drives (LLM every ~6 s); other tabs mirror; the server ticks once a minute otherwise.
+const syncs = new Map<string, AgentSync>();
+const llmBrains = new Map<string, LlmBrain>();
+for (const a of agents) {
+  if (!(a.brain instanceof LlmBrain)) continue;
+  const brain = a.brain;
+  const sync = new AgentSync(a, landmarks, brain);
+  brain.clientId = sync.clientId;
+  brain.onLostLease = () => sync.lostLease();
+  syncs.set(a.id, sync);
+  llmBrains.set(a.id, brain);
+  sync.start();
+}
+save.saveBy = (by) => by === 'player' || syncs.get(by)?.role === 'driver';
 const views = agents.map((a) => new AgentView(a));
 for (const v of views) ctx.scene.add(v.root, v.pathLine);
 
@@ -199,12 +215,13 @@ overlay.setExtra(() => {
     landmarks: landmarks.list.length,
     ...Object.fromEntries(
       agents
-        .filter((a) => a.brain instanceof LlmBrain)
+        .filter((a) => llmBrains.has(a.id))
         .map((a) => {
-          const st = (a.brain as LlmBrain).stats;
+          const st = llmBrains.get(a.id)!.stats;
+          const role = syncs.get(a.id)?.role ?? 'local';
           return [
             `${a.id} brain`,
-            `${st.mode}  calls ${st.calls}  $${st.cost.toFixed(4)}  today $${st.spentToday.toFixed(3)}/${st.budget || '?'}  ${st.lastMs}ms${st.lastError ? `  (${st.lastError})` : ''}`,
+            `${role}  ${st.mode}  calls ${st.calls}  $${st.cost.toFixed(4)}  today $${st.spentToday.toFixed(3)}/${st.budget || '?'}  ${st.lastMs}ms${st.lastError ? `  (${st.lastError})` : ''}`,
           ];
         }),
     ),
@@ -223,7 +240,22 @@ loop.start();
 
 // Expose for debugging from DevTools / MCP.
 Object.assign(window, {
-  __game: { cfg, ctx, world, loop, agents, landmarks, chat, player, input, hotbar, clock, dayNight, save },
+  __game: {
+    cfg,
+    ctx,
+    world,
+    loop,
+    agents,
+    landmarks,
+    chat,
+    player,
+    input,
+    hotbar,
+    clock,
+    dayNight,
+    save,
+    syncs,
+  },
 });
 
 if (import.meta.hot) {

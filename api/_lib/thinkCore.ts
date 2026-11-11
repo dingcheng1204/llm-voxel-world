@@ -17,7 +17,7 @@ export interface ThinkDeps {
   now?: () => number;
 }
 
-const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
+export const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...extra },
@@ -25,7 +25,7 @@ const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =
 
 const MAX_BODY = 24_000;
 
-function config(env: Record<string, string | undefined>) {
+export function config(env: Record<string, string | undefined>) {
   const num = (v: string | undefined, d: number) =>
     v !== undefined && Number.isFinite(Number(v)) ? Number(v) : d;
   return {
@@ -49,9 +49,11 @@ function config(env: Record<string, string | undefined>) {
   };
 }
 
-async function rpc<T>(
+export type Config = ReturnType<typeof config>;
+
+export async function rpc<T>(
   deps: ThinkDeps,
-  cfg: ReturnType<typeof config>,
+  cfg: Config,
   fn: string,
   args: Record<string, unknown>,
 ): Promise<T> {
@@ -91,45 +93,56 @@ export function extractJson(text: string): unknown {
   }
 }
 
-export async function handleThink(req: Request, deps: ThinkDeps): Promise<Response> {
-  if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
-  const cfg = config(deps.env);
-  const now = deps.now ?? Date.now;
+export type ThinkResult =
+  | {
+      ok: true;
+      raw: unknown;
+      usage: { input: number; cached: number; output: number };
+      cost: number;
+      spentToday: number;
+      budget: number;
+      ms: number;
+    }
+  | { ok: false; status: number; error: string; retryAfter?: number };
 
-  // --- validate input ---
-  const raw = await req.text();
-  if (raw.length > MAX_BODY) return json({ error: 'request too large' }, 413);
-  let body: { agentId?: unknown; perception?: unknown; retryError?: unknown };
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return json({ error: 'invalid JSON' }, 400);
-  }
-  const agentId = typeof body.agentId === 'string' ? body.agentId : '';
+/**
+ * One budgeted, logged model call for `agentId` with this perception. Used by /api/agent/think
+ * (browser-driven) and /api/agent/tick (server-driven). Never throws.
+ */
+export async function runThink(
+  deps: ThinkDeps,
+  cfg: Config,
+  agentId: string,
+  perception: Perception,
+  retryError?: string,
+): Promise<ThinkResult> {
+  const now = deps.now ?? Date.now;
   const persona = PERSONAS[agentId];
-  if (!persona || !cfg.agents.includes(agentId)) return json({ error: `no LLM brain for "${agentId}"` }, 403);
-  const perception = body.perception as Perception | undefined;
-  if (!perception || typeof perception !== 'object' || !perception.self)
-    return json({ error: 'missing perception' }, 400);
-  const retryError = typeof body.retryError === 'string' ? body.retryError.slice(0, 500) : undefined;
+  if (!persona || !cfg.agents.includes(agentId))
+    return { ok: false, status: 403, error: `no LLM brain for "${agentId}"` };
 
   // --- fail closed without keys ---
-  if (!cfg.apiKey) return json({ error: 'LLM key not configured' }, 503);
-  if (!cfg.dbSecret) return json({ error: 'budget guard not configured (AGENT_DB_SECRET)' }, 503);
+  if (!cfg.apiKey) return { ok: false, status: 503, error: 'LLM key not configured' };
+  if (!cfg.dbSecret)
+    return { ok: false, status: 503, error: 'budget guard not configured (AGENT_DB_SECRET)' };
 
-  // --- budget + rate limit (shared by every visitor) ---
+  // --- budget + rate limit (shared by every visitor and the server tick) ---
   let budget: { spent_today: number; calls_last_minute: number };
   try {
     budget = await rpc(deps, cfg, 'agent_budget', { p_secret: cfg.dbSecret });
   } catch {
-    return json({ error: 'budget check unavailable' }, 503);
+    return { ok: false, status: 503, error: 'budget check unavailable' };
   }
   if (Number(budget.spent_today) >= cfg.dailyBudget) {
-    const wait = secondsUntilTaipeiMidnight(now());
-    return json({ error: 'daily budget reached', retryAfter: wait }, 429, { 'Retry-After': String(wait) });
+    return {
+      ok: false,
+      status: 429,
+      error: 'daily budget reached',
+      retryAfter: secondsUntilTaipeiMidnight(now()),
+    };
   }
   if (budget.calls_last_minute >= cfg.maxPerMinute) {
-    return json({ error: 'too many thinks right now', retryAfter: 20 }, 429, { 'Retry-After': '20' });
+    return { ok: false, status: 429, error: 'too many thinks right now', retryAfter: 20 };
   }
 
   // --- call the model ---
@@ -160,12 +173,12 @@ export async function handleThink(req: Request, deps: ThinkDeps): Promise<Respon
     };
     if (!res.ok || data.base_resp?.status_code) {
       const msg = data.error?.message ?? data.base_resp?.status_msg ?? `status ${res.status}`;
-      return json({ error: `model error: ${msg}` }, 502);
+      return { ok: false, status: 502, error: `model error: ${msg}` };
     }
     content = data.choices?.[0]?.message?.content ?? '';
     if (data.usage) usage = { ...usage, ...data.usage };
   } catch (err) {
-    return json({ error: `model unreachable: ${(err as Error).name}` }, 504);
+    return { ok: false, status: 504, error: `model unreachable: ${(err as Error).name}` };
   }
 
   // --- account + log ---
@@ -204,12 +217,65 @@ export async function handleThink(req: Request, deps: ThinkDeps): Promise<Respon
     console.error('logging failed', err);
   }
 
-  return json({
+  return {
+    ok: true,
     raw: parsed ?? content,
     usage: { input: usage.prompt_tokens, cached, output: usage.completion_tokens },
     cost,
     spentToday: Number(budget.spent_today) + cost,
     budget: cfg.dailyBudget,
     ms: now() - started,
-  });
+  };
+}
+
+/** Lease length for a browser driver; renewed by every think and every /api/agent/state heartbeat. */
+export const BROWSER_LEASE_SECONDS = 30;
+
+export async function handleThink(req: Request, deps: ThinkDeps): Promise<Response> {
+  if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+  const cfg = config(deps.env);
+
+  // --- validate input ---
+  const raw = await req.text();
+  if (raw.length > MAX_BODY) return json({ error: 'request too large' }, 413);
+  let body: { agentId?: unknown; clientId?: unknown; perception?: unknown; retryError?: unknown };
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return json({ error: 'invalid JSON' }, 400);
+  }
+  const agentId = typeof body.agentId === 'string' ? body.agentId : '';
+  if (!PERSONAS[agentId] || !cfg.agents.includes(agentId))
+    return json({ error: `no LLM brain for "${agentId}"` }, 403);
+  const perception = body.perception as Perception | undefined;
+  if (!perception || typeof perception !== 'object' || !perception.self)
+    return json({ error: 'missing perception' }, 400);
+  const clientId = typeof body.clientId === 'string' ? body.clientId : '';
+  if (!/^[\w-]{8,64}$/.test(clientId)) return json({ error: 'missing clientId' }, 400);
+  const retryError = typeof body.retryError === 'string' ? body.retryError.slice(0, 500) : undefined;
+  if (!cfg.apiKey) return json({ error: 'LLM key not configured' }, 503);
+  if (!cfg.dbSecret) return json({ error: 'budget guard not configured (AGENT_DB_SECRET)' }, 503);
+
+  // --- only the tab that holds the lease may think for this character ---
+  try {
+    const lease = await rpc<{ driver: boolean }>(deps, cfg, 'agent_state_sync', {
+      p_secret: cfg.dbSecret,
+      p_agent: agentId,
+      p_driver: clientId,
+      p_state: null,
+      p_lease_seconds: BROWSER_LEASE_SECONDS,
+      p_release: false,
+    });
+    if (!lease.driver) return json({ error: 'another simulator is driving this character' }, 409);
+  } catch {
+    return json({ error: 'state service unavailable' }, 503);
+  }
+
+  const r = await runThink(deps, cfg, agentId, perception, retryError);
+  if (!r.ok) {
+    const extra: Record<string, string> = r.retryAfter ? { 'Retry-After': String(r.retryAfter) } : {};
+    return json({ error: r.error, ...(r.retryAfter ? { retryAfter: r.retryAfter } : {}) }, r.status, extra);
+  }
+  const { ok: _ok, ...rest } = r;
+  return json(rest);
 }

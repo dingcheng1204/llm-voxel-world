@@ -91,12 +91,15 @@ export class WorldSave {
   }
 
   /**
-   * Record a local edit (from World.onEdit). Only the player's own edits are saved: every visitor's
-   * browser runs its own copy of the characters, so their edits stay local until the agents run
-   * server-side (ROADMAP phase 4) and write the shared world themselves.
+   * Which edits this browser saves. Default: only the player's. Scripted characters run separately in
+   * every browser, so their edits stay local; a server-run character's edits are saved by whoever
+   * drives it (main.ts widens this while this tab is the driver).
    */
+  saveBy: (by: string) => boolean = (by) => by === 'player';
+
+  /** Record a local edit (from World.onEdit) if `saveBy` allows it. */
   record(e: { x: number; y: number; z: number; id: number; by: string; t: number }): void {
-    if (e.by !== 'player') return;
+    if (!this.saveBy(e.by)) return;
     this.remember([e.x, e.y, e.z, e.id, e.t], false);
     if (this.cloud) this.pending.push({ x: e.x, y: e.y, z: e.z, id: e.id, by: e.by });
     this.updateStatus();

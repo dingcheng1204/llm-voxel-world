@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run build:sim && tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm test && vite build"
+    "check": "npm run typecheck && npm run lint && npm test && node scripts/build-sim.mjs --check && vite build",
+    "build:sim": "node scripts/build-sim.mjs"
   },
   "dependencies": {
     "alea": "^1.0.1",

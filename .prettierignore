@@ -1,3 +1,4 @@
+api/_gen
 dist
 node_modules
 package-lock.json

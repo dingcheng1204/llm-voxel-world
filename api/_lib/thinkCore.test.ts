@@ -15,7 +15,9 @@ const perception = {
 
 const env = { MINIMAX_API_KEY_1: 'k', AGENT_DB_SECRET: 's' };
 
-function fakeFetch(opts: { spent?: number; calls?: number; reply?: string; modelStatus?: number } = {}) {
+export function fakeFetch(
+  opts: { spent?: number; calls?: number; reply?: string; modelStatus?: number; leaseHeld?: boolean } = {},
+) {
   const calls: { url: string; body: unknown }[] = [];
   const f = (async (url: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
@@ -26,6 +28,9 @@ function fakeFetch(opts: { spent?: number; calls?: number; reply?: string; model
       );
     }
     if (url.endsWith('/rpc/agent_log_think')) return new Response('');
+    if (url.endsWith('/rpc/agent_state_sync')) {
+      return new Response(JSON.stringify({ driver: !opts.leaseHeld, state: {}, updated_at: null }));
+    }
     if (url.endsWith('/chat/completions')) {
       return new Response(
         JSON.stringify({
@@ -58,7 +63,10 @@ const post = (body: unknown) =>
 describe('handleThink', () => {
   it('calls the model, returns parsed JSON and logs usage with the right cost', async () => {
     const { f, calls } = fakeFetch();
-    const res = await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env });
+    const res = await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
+      fetch: f,
+      env,
+    });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.raw.say).toBe('你好呀');
@@ -77,13 +85,16 @@ describe('handleThink', () => {
 
   it('stops at the daily budget and does not call the model', async () => {
     const { f, calls } = fakeFetch({ spent: 0.5 });
-    const res = await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env });
+    const res = await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
+      fetch: f,
+      env,
+    });
     expect(res.status).toBe(429);
     expect(calls.some((c) => c.url.endsWith('/chat/completions'))).toBe(false);
   });
 
   it('applies the global rate limit', async () => {
-    const res = await handleThink(post({ agentId: 'clio', perception }), {
+    const res = await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
       fetch: fakeFetch({ calls: 20 }).f,
       env,
     });
@@ -94,21 +105,25 @@ describe('handleThink', () => {
     const { f, calls } = fakeFetch();
     expect(
       (
-        await handleThink(post({ agentId: 'clio', perception }), {
+        await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
           fetch: f,
           env: { MINIMAX_API_KEY_1: 'k' },
         })
       ).status,
     ).toBe(503);
     expect(
-      (await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env: { AGENT_DB_SECRET: 's' } }))
-        .status,
+      (
+        await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
+          fetch: f,
+          env: { AGENT_DB_SECRET: 's' },
+        })
+      ).status,
     ).toBe(503);
     expect(calls).toHaveLength(0);
   });
 
   it('reports model errors without leaking details', async () => {
-    const res = await handleThink(post({ agentId: 'clio', perception }), {
+    const res = await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
       fetch: fakeFetch({ modelStatus: 401 }).f,
       env,
     });
@@ -142,5 +157,22 @@ describe('helpers', () => {
   it('computes time until Taipei midnight', () => {
     // 2026-01-01T15:00:00Z = 23:00 in Taipei → 1 hour left
     expect(secondsUntilTaipeiMidnight(Date.UTC(2026, 0, 1, 15))).toBe(3600);
+  });
+});
+
+describe('handleThink lease', () => {
+  it('refuses a tab that does not hold the driver lease (no model call)', async () => {
+    const { f, calls } = fakeFetch({ leaseHeld: true });
+    const res = await handleThink(post({ agentId: 'clio', clientId: 'tab-87654321', perception }), {
+      fetch: f,
+      env,
+    });
+    expect(res.status).toBe(409);
+    expect(calls.some((c) => c.url.endsWith('/chat/completions'))).toBe(false);
+  });
+
+  it('requires a clientId', async () => {
+    const { f } = fakeFetch();
+    expect((await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env })).status).toBe(400);
   });
 });
