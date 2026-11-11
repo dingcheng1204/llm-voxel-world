@@ -408,6 +408,138 @@
         color: var(--ink-soft);
       }
 
+      /* ---- lower band: island map, places, today's usage ---- */
+      .lower {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 0 20px 40px;
+        display: grid;
+        gap: 28px;
+        grid-template-columns: minmax(0, 1fr);
+      }
+      @media (min-width: 900px) {
+        .lower {
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: start;
+        }
+      }
+      .map-card {
+        background: #fff;
+        border-radius: 22px;
+        padding: 10px;
+        justify-self: start;
+        max-width: 100%;
+        scroll-margin-top: 16px;
+      }
+      .map-card canvas {
+        display: block;
+        border-radius: 14px;
+        max-width: 100%;
+        height: auto;
+      }
+      .map-card p {
+        margin: 8px 6px 2px;
+        font-size: 13px;
+        color: var(--ink-soft);
+      }
+      .places {
+        list-style: none;
+        margin: 0 0 28px;
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .place-chip {
+        appearance: none;
+        border: 2px solid transparent;
+        background: #fff;
+        border-radius: 12px;
+        padding: 7px 12px;
+        font: 16px/1.3 var(--hand);
+        color: var(--ink);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .place-chip .by {
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        transform: rotate(45deg);
+        flex: none;
+      }
+      .place-chip[aria-pressed='true'] {
+        border-color: #f5b800;
+        background: #fff8db;
+      }
+      button.place {
+        appearance: none;
+        border: 0;
+        padding: 0 1px;
+        margin: 0;
+        font: inherit;
+        color: inherit;
+        background: linear-gradient(transparent 62%, rgba(255, 207, 63, 0.55) 62%);
+        cursor: pointer;
+        border-radius: 2px;
+      }
+      button.place:hover {
+        background: rgba(255, 207, 63, 0.55);
+      }
+      .usage {
+        display: grid;
+        gap: 12px;
+      }
+      .meter {
+        background: #fff;
+        border-radius: 16px;
+        padding: 14px 16px 12px;
+        border-left: 6px solid var(--c);
+      }
+      .meter h3 {
+        margin: 0;
+        font: 400 17px/1.3 var(--ui);
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .meter h3 small {
+        font-size: 13px;
+        color: var(--ink-soft);
+      }
+      .meter .big {
+        font: 400 26px/1.25 var(--ui);
+        margin: 6px 0 8px;
+        font-variant-numeric: tabular-nums;
+      }
+      .meter .big span {
+        font-size: 15px;
+        color: var(--ink-soft);
+      }
+      .bar {
+        height: 10px;
+        border-radius: 999px;
+        background: var(--rule);
+        overflow: hidden;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        width: var(--p);
+        background: var(--c);
+        border-radius: inherit;
+      }
+      .bar.over i {
+        background: #e5533d;
+      }
+      .meter p {
+        margin: 8px 0 0;
+        font-size: 14px;
+        color: var(--ink-soft);
+      }
+
       .error {
         max-width: 1040px;
         margin: 16px auto 0;
@@ -507,6 +639,19 @@
         </div>
       </aside>
     </main>
+    <div class="lower">
+      <section class="map-card" id="map-card" aria-labelledby="map-h">
+        <h2 class="section" id="map-h" style="margin: 4px 6px 10px">小島地圖</h2>
+        <canvas id="map" role="img" aria-label="小島地圖：Clio、Gem 的位置和牠們取過名字的地方"></canvas>
+        <p>◆ 牠們取過名字的地方　● 現在的位置</p>
+      </section>
+      <div>
+        <h2 class="section">取過名字的地方 <span id="place-count"></span></h2>
+        <ul class="places" id="places"></ul>
+        <h2 class="section">今天的用量</h2>
+        <div class="usage" id="usage"><p class="muted">讀取中…</p></div>
+      </div>
+    </div>
     <footer>資料每 30 秒更新一次。日記只寫當天真的發生過的事。</footer>
     <script type="module" src="/src/diary/main.ts"></script>
   </body>

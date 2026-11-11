@@ -34,6 +34,8 @@ import { RemotePlayers } from './multiplayer/RemotePlayers';
 import { createModel, PLAYER_SPECIES, type PlayerSpecies } from './agents/species';
 import { createNameTag } from './scene/nameTag';
 import { ChatWindow } from './ui/chat';
+import { Minimap } from './ui/minimap';
+import type { MapMarker } from './ui/islandMap';
 
 const cfg = loadConfig();
 const container = document.getElementById('app')!;
@@ -197,6 +199,51 @@ let island: Island | null = null;
 let chatWindow: ChatWindow | null = null;
 let typing = false;
 const nameCache = new Map<string, string>();
+// Minimap (top right): you, the characters, other players and the places the characters named.
+const minimap = player
+  ? new Minimap(document.body, cfg.seed, () => {
+      const out: MapMarker[] = landmarks.list.map((l) => ({
+        kind: 'place',
+        x: l.pos[0] + 0.5,
+        z: l.pos[2] + 0.5,
+        label: l.name,
+        color: '#3a3550',
+      }));
+      for (const a of agents) {
+        out.push({
+          kind: 'character',
+          x: a.body.pos.x,
+          z: a.body.pos.z,
+          label: a.member.name,
+          color: a.member.tagColor,
+        });
+      }
+      for (const r of remote?.list() ?? []) {
+        const sp = island?.players.get(r.id)?.species;
+        out.push({
+          kind: 'player',
+          x: r.pos.x,
+          z: r.pos.z,
+          label: r.name,
+          color: sp ? SPECIES_COLOR[sp] : '#5b6b86',
+        });
+      }
+      if (player) {
+        const b = player.bodyPos;
+        // Facing direction (−sin yaw, −cos yaw) in x/z → canvas angle.
+        const heading = Math.atan2(-Math.cos(player.yaw), -Math.sin(player.yaw));
+        out.push({
+          kind: 'me',
+          x: b.x,
+          z: b.z,
+          label: me.name || '你',
+          color: SPECIES_COLOR[me.species],
+          heading,
+        });
+      }
+      return out;
+    })
+  : null;
 if (player) {
   ctx.scene.add(player.object);
   const playOverlay = document.getElementById('play-overlay')!;
@@ -227,6 +274,7 @@ if (player) {
     if (!joined) {
       joined = true;
       startIsland();
+      minimap?.show();
     } else if (changed) {
       island?.setIdentity(me);
       chatWindow?.refreshPeople();
@@ -239,7 +287,12 @@ if (player) {
   };
   // T or Enter while playing opens the chat box.
   window.addEventListener('keydown', (e) => {
-    if (!input.locked || !chatWindow || typing) return;
+    if (!input.locked || typing) return;
+    if (e.code === 'KeyM' && !e.repeat) {
+      minimap?.toggle();
+      return;
+    }
+    if (!chatWindow) return;
     if (e.code === 'KeyT' || e.code === 'Enter') {
       e.preventDefault();
       chatWindow.open();
@@ -395,6 +448,7 @@ const loop = new GameLoop(
       dayNight.update(cam, world.fires);
       for (const v of views) v.render(alpha, time, !debugEl.hidden);
       remote?.update(frameDt, time);
+      minimap?.update(performance.now());
       for (const m of lineupModels) m.animate(time, 0);
       if (player && island) {
         const b = player.bodyPos;
@@ -466,6 +520,7 @@ Object.assign(window, {
     get chatWindow() {
       return chatWindow;
     },
+    minimap,
   },
 });
 

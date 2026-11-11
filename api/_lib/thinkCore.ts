@@ -152,8 +152,9 @@ export function secondsUntilPacificMidnight(nowMs: number): number {
     minute: '2-digit',
     second: '2-digit',
   }).formatToParts(new Date(nowMs));
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0) % 24;
-  const elapsed = get('hour') * 3600 + get('minute') * 60 + get('second');
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  // Some engines print midnight as "24"; only the hour wraps.
+  const elapsed = (get('hour') % 24) * 3600 + get('minute') * 60 + get('second');
   return Math.max(60, 86_400 - elapsed);
 }
 

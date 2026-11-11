@@ -3,7 +3,11 @@
 // tables with the publishable key (RLS allows SELECT only).
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../config/supabase';
+import { drawMap, MAP_BOUNDS, renderIslandBase, type MapMarker } from '../ui/islandMap';
 import { escapeHtml, renderDiary } from './markdown';
+import { formatUsage, type Usage } from './usage';
+
+const SEED = Number(import.meta.env.VITE_WORLD_SEED ?? 20261110);
 
 interface Character {
   id: string;
@@ -34,7 +38,14 @@ interface Mind {
 interface State {
   agent_id: string;
   updated_at: string;
-  state: { thought?: string; thoughtAt?: number; say?: string | null; sayAt?: number | null; pos?: number[] };
+  state: {
+    thought?: string;
+    thoughtAt?: number;
+    say?: string | null;
+    sayAt?: number | null;
+    pos?: number[];
+    landmarks?: { name: string; pos: number[]; by: string }[];
+  };
 }
 interface Message {
   speaker: string;
@@ -48,7 +59,11 @@ const data = {
   minds: new Map<string, Mind>(),
   states: new Map<string, State>(),
   messages: [] as Message[],
+  usage: null as Usage | null,
+  usageError: '' as string,
 };
+let highlighted: string | null = null;
+let mapBase: HTMLCanvasElement | null = null;
 const params = new URLSearchParams(location.search);
 let who = CHARACTERS.some((c) => c.id === params.get('who')) ? params.get('who')! : 'clio';
 let date: string | null = params.get('date');
@@ -202,7 +217,177 @@ function render(pop = false): void {
   renderDiaryPart();
   renderMind();
   renderTalk();
+  renderPlaces();
+  linkPlaces();
+  renderUsage();
+  drawIslandMap();
   syncUrl();
+}
+
+// ---- places and the island map ----
+
+interface Place {
+  name: string;
+  x: number;
+  z: number;
+  by: string;
+}
+
+/** Places named by any character (from the saved character states), newest name wins. */
+function places(): Place[] {
+  const byName = new Map<string, Place>();
+  for (const st of data.states.values()) {
+    for (const l of st.state.landmarks ?? []) {
+      if (typeof l.name !== 'string' || !Array.isArray(l.pos) || l.pos.length < 3) continue;
+      byName.set(l.name, { name: l.name, x: Number(l.pos[0]) + 0.5, z: Number(l.pos[2]) + 0.5, by: l.by });
+    }
+  }
+  return [...byName.values()];
+}
+
+const colorOf = (id: string) => (id === 'gem' ? '#4285f4' : id === 'clio' ? '#f2994a' : '#8a94a8');
+
+function renderPlaces(): void {
+  const list = places();
+  $('place-count').textContent = list.length ? `${list.length} 個` : '';
+  $('places').innerHTML = list.length
+    ? list
+        .map((p) => {
+          const who = CHARACTERS.find((c) => c.id === p.by)?.name ?? p.by;
+          return `<li><button class="place-chip" data-place="${escapeHtml(p.name)}" aria-pressed="${p.name === highlighted}"
+            title="${escapeHtml(who)} 取的名字"><span class="by" style="background:${colorOf(p.by)}"></span>${escapeHtml(p.name)}</button></li>`;
+        })
+        .join('')
+    : `<li class="muted">還沒有取過名字的地方。</li>`;
+}
+
+/** Turns place names inside the diary, notes, thought and conversations into buttons that show the map. */
+function linkPlaces(): void {
+  const names = places()
+    .map((p) => p.name)
+    .filter((n) => n.length >= 2)
+    .sort((a, b) => b.length - a.length);
+  if (!names.length) return;
+  const re = new RegExp(names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+  for (const root of [$('paper'), $('mind'), $('now'), $('talk')]) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const hits: Text[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      re.lastIndex = 0;
+      if (re.test(n.nodeValue ?? '') && !n.parentElement?.closest('button')) hits.push(n as Text);
+    }
+    for (const node of hits) {
+      const text = node.nodeValue ?? '';
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      re.lastIndex = 0;
+      for (let m = re.exec(text); m; m = re.exec(text)) {
+        frag.append(text.slice(last, m.index));
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'place';
+        b.dataset.place = m[0];
+        b.textContent = m[0];
+        b.title = '在地圖上看位置';
+        frag.append(b);
+        last = m.index + m[0].length;
+      }
+      frag.append(text.slice(last));
+      node.replaceWith(frag);
+    }
+  }
+}
+
+function showPlace(name: string): void {
+  highlighted = highlighted === name ? null : name;
+  renderPlaces();
+  drawIslandMap();
+  if (highlighted)
+    $('map-card').scrollIntoView({
+      behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'nearest',
+    });
+}
+
+document.addEventListener('click', (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-place]');
+  if (el) showPlace(el.dataset.place!);
+});
+
+function drawIslandMap(): void {
+  if (!mapBase) return;
+  const canvas = $<HTMLCanvasElement>('map');
+  const avail = Math.max(200, ($('map-card').parentElement!.clientWidth || 400) - 20);
+  const scale = Math.min(1.75, avail / MAP_BOUNDS.width);
+  const w = Math.round(MAP_BOUNDS.width * scale);
+  const h = Math.round(MAP_BOUNDS.height * scale);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (canvas.width !== Math.round(w * dpr)) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = `${w}px`;
+  }
+  const ctx = canvas.getContext('2d')!;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const markers: MapMarker[] = places().map((p) => ({
+    kind: 'place',
+    x: p.x,
+    z: p.z,
+    label: p.name,
+    color: '#3a3550',
+    highlight: p.name === highlighted,
+  }));
+  for (const c of CHARACTERS) {
+    const pos = data.states.get(c.id)?.state.pos;
+    if (Array.isArray(pos) && pos.length >= 3) {
+      markers.push({
+        kind: 'character',
+        x: Number(pos[0]),
+        z: Number(pos[2]),
+        label: c.name,
+        color: colorOf(c.id),
+      });
+    }
+  }
+  drawMap(ctx, mapBase, markers, {
+    scale,
+    labels: 'people',
+    font: '700 14px Huninn, ui-rounded, system-ui, sans-serif',
+  });
+}
+
+window.addEventListener('resize', () => drawIslandMap());
+
+// ---- today's usage ----
+
+function renderUsage(): void {
+  const el = $('usage');
+  if (!data.usage) {
+    el.innerHTML = `<p class="muted">${data.usageError ? escapeHtml(data.usageError) : '讀取中…'}</p>`;
+    return;
+  }
+  el.innerHTML = formatUsage(data.usage)
+    .map(
+      (m) => `<article class="meter" style="--c:${colorOf(m.id)}">
+        <h3>${escapeHtml(m.title)}<small>${escapeHtml(m.subtitle)}</small></h3>
+        <div class="big">${escapeHtml(m.value)}<span>${escapeHtml(m.of)}</span></div>
+        <div class="bar${m.ratio >= 1 ? ' over' : ''}" role="meter" aria-valuemin="0" aria-valuemax="100"
+          aria-valuenow="${Math.round(Math.min(1, m.ratio) * 100)}" aria-label="${escapeHtml(m.title)}"><i style="--p:${Math.min(100, m.ratio * 100).toFixed(1)}%"></i></div>
+        ${m.notes.map((n) => `<p>${escapeHtml(n)}</p>`).join('')}
+      </article>`,
+    )
+    .join('');
+}
+
+async function loadUsage(): Promise<void> {
+  try {
+    const res = await fetch('/api/agent/usage');
+    if (!res.ok) throw new Error(String(res.status));
+    data.usage = (await res.json()) as Usage;
+    data.usageError = '';
+  } catch {
+    data.usageError = '讀不到今天的用量（本機開發時沒有這個 API）。';
+  }
 }
 
 function showError(err: unknown): void {
@@ -225,12 +410,18 @@ async function loadAll(): Promise<void> {
     get<Diary[]>('diaries?select=agent_id,diary_date,game_day,content_md,summary&order=diary_date.desc'),
     get<Mind[]>('agent_mind?select=agent_id,knowledge,interests,goals'),
     loadLive(),
+    loadUsage(),
   ]);
   data.diaries = diaries;
   data.minds = new Map(minds.map((m) => [m.agent_id, m]));
 }
 
 render();
+// The island picture takes a moment to build; do it after the first paint.
+setTimeout(() => {
+  mapBase = renderIslandBase(SEED);
+  drawIslandMap();
+}, 50);
 loadAll()
   .then(() => {
     $('error').hidden = true;
