@@ -15,6 +15,7 @@ import { AgentSync } from './agents/sync';
 import { CAST } from './agents/cast';
 import { ChatLog, Landmarks } from './agents/worldState';
 import { Hotbar } from './player/hotbar';
+import { TouchControls, wantsTouch } from './player/touch';
 import { Input } from './player/input';
 import { PlayerController } from './player/controller';
 import { SEA_LEVEL } from './world/coords';
@@ -208,6 +209,7 @@ const player = demo
 let island: Island | null = null;
 let chatWindow: ChatWindow | null = null;
 let typing = false;
+let touch: TouchControls | null = null;
 const nameCache = new Map<string, string>();
 // Minimap (top right): you, the characters, other players and the places the characters named.
 const minimap = player
@@ -296,15 +298,24 @@ if (player) {
       joined = true;
       startIsland();
       minimap?.show();
+      touch?.enterFullscreen();
     } else if (changed) {
       island?.setIdentity(me);
       chatWindow?.refreshPeople();
     }
     input.requestLock();
   });
+  // Phones / tablets: on-screen joystick, look by dragging, buttons (no pointer lock).
+  touch = wantsTouch()
+    ? new TouchControls(ctx.renderer.domElement, input, hotbar, hotbarEl, {
+        onPause: () => input.release(),
+        onChat: () => chatWindow?.open(),
+      })
+    : null;
   input.onLockChange = (locked) => {
     playOverlay.hidden = locked || typing;
     crosshair.hidden = !locked;
+    touch?.setVisible(locked && !typing);
   };
   // T or Enter while playing opens the chat box.
   window.addEventListener('keydown', (e) => {
@@ -364,12 +375,25 @@ function startIsland(): void {
     },
     startTyping: () => {
       typing = true;
-      if (input.locked) document.exitPointerLock();
+      touch?.setVisible(false);
+      input.release();
     },
     stopTyping: (resume) => {
       typing = false;
-      if (resume) input.requestLock();
-      else document.getElementById('play-overlay')!.hidden = input.locked;
+      if (resume) {
+        input.requestLock();
+        touch?.setVisible(input.locked);
+      } else document.getElementById('play-overlay')!.hidden = input.locked;
+    },
+    // Phones have no Esc: dismissing the keyboard (tapping outside the box) goes back to playing.
+    blurred: () => {
+      if (!touch || !typing) return;
+      setTimeout(() => {
+        if (!typing || chatWindow?.typing) return;
+        typing = false;
+        input.requestLock();
+        touch?.setVisible(true);
+      }, 150);
     },
   });
 

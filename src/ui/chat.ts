@@ -25,6 +25,8 @@ export interface ChatCallbacks {
   startTyping(): void;
   /** Done typing (sent or cancelled) — `resume` when Enter sent the line. */
   stopTyping(resume: boolean): void;
+  /** The input lost focus (on phones: the keyboard was dismissed without sending). */
+  blurred?(): void;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -97,6 +99,7 @@ export class ChatWindow {
       void this.submit(true);
     });
     this.input.addEventListener('focus', () => this.cb.startTyping());
+    this.input.addEventListener('blur', () => this.cb.blurred?.());
     this.input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Escape') {

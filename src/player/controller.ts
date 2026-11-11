@@ -84,19 +84,23 @@ export class PlayerController {
     if (presses.includes('KeyF')) this.flying = !this.flying;
 
     // Wanted horizontal direction from WASD relative to where we look.
-    const fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
+    // Keys give full speed; the touch joystick adds an analog amount (a light push walks slowly).
+    const m = this.input.move;
+    const fwd =
+      (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) + m.fwd;
     const side =
-      (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
+      (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + m.side;
     let wx = -Math.sin(this.yaw) * fwd + Math.cos(this.yaw) * side;
     let wz = -Math.cos(this.yaw) * fwd - Math.sin(this.yaw) * side;
     const wl = Math.hypot(wx, wz);
-    if (wl > 0) {
+    if (wl > 1) {
       wx /= wl;
       wz /= wl;
     }
 
     this.inWater = this.isInWater();
-    const sprint = k.has('ShiftLeft') || k.has('ShiftRight');
+    // Joystick pushed all the way = sprint.
+    const sprint = k.has('ShiftLeft') || k.has('ShiftRight') || Math.hypot(m.fwd, m.side) > 0.97;
     let speed = this.flying ? FLY_SPEED : sprint ? PLAYER.sprint : PLAYER.walk;
     if (this.inWater && !this.flying) speed *= 0.55;
     const accel = b.onGround || this.flying || this.inWater ? 1 - Math.exp(-18 * dt) : 1 - Math.exp(-5 * dt);

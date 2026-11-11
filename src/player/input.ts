@@ -1,4 +1,5 @@
-// Keyboard + mouse + pointer lock. Keeps raw state; the controller reads it on fixed ticks.
+// Keyboard + mouse + pointer lock, or touch controls on phones/tablets (see touch.ts). Keeps raw state;
+// the controller reads it on fixed ticks. In touch mode there is no pointer lock: `locked` means "playing".
 
 export class Input {
   readonly keys = new Set<string>();
@@ -11,6 +12,10 @@ export class Input {
   private readonly pressed: string[] = [];
   private wheel = 0;
   onLockChange: (locked: boolean) => void = () => {};
+  /** Touch mode: playing without pointer lock, movement from the on-screen joystick. */
+  touchMode = false;
+  /** Analog movement from the joystick: forward (−1..1) and right (−1..1). */
+  readonly move = { fwd: 0, side: 0 };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
@@ -56,8 +61,59 @@ export class Input {
   }
 
   requestLock(): void {
+    if (this.touchMode) {
+      if (!this.locked) {
+        this.locked = true;
+        this.onLockChange(true);
+      }
+      return;
+    }
     const p = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
     p?.catch?.(() => {});
+  }
+
+  /** Stop playing (pause / chat): exits pointer lock, or ends the touch session. */
+  release(): void {
+    if (!this.touchMode) {
+      if (this.locked) document.exitPointerLock();
+      return;
+    }
+    if (!this.locked) return;
+    this.locked = false;
+    this.keys.clear();
+    this.buttons.clear();
+    this.move.fwd = 0;
+    this.move.side = 0;
+    this.onLockChange(false);
+  }
+
+  /** Touch: look around by `dx`, `dy` mouse-equivalent pixels. */
+  addLook(dx: number, dy: number): void {
+    if (!this.locked) return;
+    this.dx += dx;
+    this.dy += dy;
+  }
+
+  /** Touch: hold or release a key (e.g. the jump button holds Space). */
+  hold(code: string, down: boolean): void {
+    if (!this.locked) return;
+    if (down) {
+      if (!this.keys.has(code)) this.pressed.push(code);
+      this.keys.add(code);
+    } else {
+      this.keys.delete(code);
+    }
+  }
+
+  /** Touch: hold or release a mouse button (0 = break, 2 = place); a press also counts as a click. */
+  holdButton(button: number, down: boolean): void {
+    if (!this.locked) return;
+    if (down) {
+      this.buttons.add(button);
+      this.pressed.push(`Mouse${button}`);
+    } else {
+      this.buttons.delete(button);
+    }
   }
 
   takeLook(): [number, number] {

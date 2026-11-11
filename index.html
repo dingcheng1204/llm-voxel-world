@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 fill=%22%235fae3a%22/%3E%3Crect y=%225%22 width=%2216%22 height=%2211%22 fill=%22%238a5a36%22/%3E%3C/svg%3E"
@@ -320,6 +320,177 @@
         background: #d0652b;
       }
 
+      /* ---- touch controls (phones / tablets) ---- */
+      #touch {
+        position: fixed;
+        inset: 0;
+        z-index: 18;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      #touch[hidden] {
+        display: none;
+      }
+      #touch .stick {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+      #touch .stick.on {
+        opacity: 1;
+      }
+      #touch .stick::before,
+      #touch .knob {
+        content: '';
+        position: absolute;
+        border-radius: 50%;
+      }
+      #touch .stick::before {
+        width: 124px;
+        height: 124px;
+        left: -62px;
+        top: -62px;
+        background: rgba(255, 255, 255, 0.22);
+        border: 2px solid rgba(255, 255, 255, 0.7);
+      }
+      #touch .knob {
+        width: 56px;
+        height: 56px;
+        left: -28px;
+        top: -28px;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 3px 10px rgba(30, 60, 90, 0.3);
+      }
+      #touch .stick.sprint::before {
+        border-color: #ffd34d;
+      }
+      #touch button {
+        pointer-events: auto;
+        touch-action: none;
+        appearance: none;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: 0 3px 12px rgba(30, 60, 90, 0.25);
+        color: #2b3a55;
+        font:
+          700 18px/1 ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        display: grid;
+        place-items: center;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #touch button.on {
+        background: #ffd34d;
+        transform: scale(0.94);
+      }
+      .touch-top {
+        position: fixed;
+        top: calc(10px + env(safe-area-inset-top));
+        left: calc(10px + env(safe-area-inset-left));
+        display: flex;
+        gap: 8px;
+      }
+      .touch-top button {
+        width: 44px;
+        height: 44px;
+        font-size: 16px !important;
+      }
+      .touch-btns {
+        position: fixed;
+        right: calc(14px + env(safe-area-inset-right));
+        bottom: calc(84px + env(safe-area-inset-bottom));
+        display: grid;
+        grid-template-columns: repeat(2, 64px);
+        grid-template-areas:
+          'fly place'
+          'dig jump';
+        gap: 12px;
+        align-items: end;
+        justify-items: center;
+      }
+      .touch-btns button {
+        width: 60px;
+        height: 60px;
+      }
+      .touch-btns [data-hold='fly'] {
+        grid-area: fly;
+        width: 44px;
+        height: 44px;
+        font-size: 15px;
+      }
+      .touch-btns [data-hold='Mouse2'] {
+        grid-area: place;
+      }
+      .touch-btns [data-hold='Mouse0'] {
+        grid-area: dig;
+      }
+      .touch-btns .jump {
+        grid-area: jump;
+        width: 72px;
+        height: 72px;
+        font-size: 20px;
+      }
+      body.touch #hotbar {
+        bottom: calc(10px + env(safe-area-inset-bottom));
+      }
+      body.touch #hotbar.tappable {
+        pointer-events: auto;
+      }
+      body.touch .slot {
+        width: 36px;
+        height: 36px;
+        border-radius: 9px;
+      }
+      body.touch .slot .key,
+      body.touch .hotbar-label {
+        display: none;
+      }
+      body.touch .hotbar-row {
+        gap: 4px;
+        padding: 5px;
+        border-radius: 14px;
+      }
+      body.touch .chat,
+      body.touch .chat-pill {
+        top: calc(62px + env(safe-area-inset-top));
+        bottom: auto;
+        left: calc(10px + env(safe-area-inset-left));
+      }
+      body.touch .chat {
+        width: min(320px, 52vw);
+      }
+      body.touch .chat-list {
+        max-height: 20vh;
+        min-height: 60px;
+      }
+      body.touch .chat-input {
+        font-size: 16px; /* no zoom-on-focus on iOS */
+      }
+      .play-card .keys-touch,
+      body.touch .play-card .keys-desktop {
+        display: none;
+      }
+      body.touch .play-card .keys-touch {
+        display: grid;
+      }
+      @media (max-width: 760px) and (orientation: portrait) {
+        body.touch .chat {
+          width: calc(100vw - 20px);
+        }
+        body.touch #minimap {
+          top: calc(62px + env(safe-area-inset-top));
+        }
+      }
+
       /* ---- chat window ---- */
       .chat,
       .chat-pill {
@@ -541,7 +712,11 @@
           <p id="join-error" class="err" role="alert"></p>
           <button type="submit" class="go">進入小島</button>
         </form>
-        <div class="keys">
+        <div class="keys keys-touch">
+          <span>左下拇指 走路（推到底 衝刺）</span><span>右邊滑動 轉視角</span><span>跳／挖／放 按鈕</span
+          ><span>點方塊列 選方塊</span><span>💬 聊天 · 點地圖 放大</span><span>❚❚ 暫停 · 橫向比較好玩</span>
+        </div>
+        <div class="keys keys-desktop">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動</span
           ><span><kbd>空白</kbd> 跳 / 游上去</span> <span><kbd>Shift</kbd> 衝刺</span
           ><span><kbd>F</kbd> 飛行開關（<kbd>C</kbd> 下降）</span> <span>左鍵 挖方塊</span
