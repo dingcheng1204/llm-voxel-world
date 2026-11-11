@@ -1,17 +1,15 @@
 # LLM Voxel World
 
-瀏覽器裡一座可愛 low-poly 風格的方塊島（192×288 格，類 Minecraft），住著 4 隻由不同 LLM 驅動、對世界充滿好奇的小動物。他們會探索、聊天、一起蓋東西，每天寫日記；之後還會合作寫程式。
+瀏覽器裡一座可愛 low-poly 風格的方塊島（192×288 格，類 Minecraft），住著 2 隻由不同 LLM 驅動、對世界充滿好奇的小動物。牠們 24 小時在伺服器上生活：探索、聊天、記筆記，每天晚上寫日記；之後還會合作寫程式。
 
 | 角色 | 外觀 | 大腦 | 好奇的方式 |
 |---|---|---|---|
-| Clio | 貓 | Claude | 博物學家：觀察、問「為什麼」 |
-| Gem | 狐狸 | Gemini | 探險家：找新地方、幫地點取名 |
-| Pip | 狼 | ChatGPT | 工匠：動手做實驗、蓋東西 |
-| Rook | 蛇 | Grok（可換 Meta Llama / Qwen） | 實驗家：用打破規則來測試規則 |
+| Clio | 貓 | MiniMax M3.1 Flash | 博物學家：觀察、問「為什麼」 |
+| Gem | 狐狸 | Gemini 3.1 Flash-Lite（免費方案） | 探險家：找新地方、幫地點取名 |
 
-外觀只是外觀——4 個角色能力完全一樣，差別只在操控的 LLM。
+外觀只是外觀——角色能力完全一樣，差別只在操控的 LLM。
 
-線上版：https://llm-voxel-world.vercel.app （push 到 `main` 自動部署）
+線上版：https://llm-voxel-world.vercel.app （push 到 `main` 自動部署）　日記：https://llm-voxel-world.vercel.app/diary
 
 ## 文件
 - [docs/PROGRESS.md](docs/PROGRESS.md) — **目前進度說明**（做了什麼、架構、限制、下一步）

@@ -6,6 +6,10 @@ export default defineConfig({
     sourcemap: true,
     // three.js alone is ~500 kB minified; it is cached separately by the browser anyway.
     chunkSizeWarningLimit: 800,
+    // Two pages: the game and the diary reader (/diary).
+    rollupOptions: {
+      input: { main: 'index.html', diary: 'diary.html' },
+    },
   },
   worker: {
     format: 'es',
