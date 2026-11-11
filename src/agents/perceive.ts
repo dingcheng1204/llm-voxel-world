@@ -2,6 +2,8 @@
 // Small and summarised on purpose: it goes straight into an LLM prompt.
 
 import * as THREE from 'three';
+import { siteBlocks, siteProgress } from './building';
+import { SEA_LEVEL } from '../world/coords';
 import { B, BLOCKS, IS_SOLID } from '../world/blocks';
 import { raycastVoxel } from '../world/raycast';
 import type { ActionResult } from './actions';
@@ -29,6 +31,18 @@ export interface Perception {
   /** Nearest visible block of each kind within 16 blocks — positions the brain can walk to / mine. */
   nearest: Record<string, { pos: [number, number, number]; dist: number }>;
   landmarks: { name: string; pos: [number, number, number]; dist: number }[];
+  /** Building sites still being built, nearest first (progress counts blocks already in place). */
+  sites?: {
+    id: string;
+    blueprint: string;
+    by: string;
+    center: [number, number, number];
+    facing: string;
+    dist: number;
+    progress: string;
+    missing: Record<string, number>;
+    next: { pos: [number, number, number]; block: string }[];
+  }[];
   nearby_agents: { id: string; name?: string; pos: [number, number, number]; dist: number; doing: string }[];
   heard: { from: string; name?: string; to?: string; text: string; t: string }[];
   last_action_result: ActionResult | null;
@@ -152,6 +166,7 @@ export function perceive(
       .filter((l) => l.dist <= LANDMARK_RADIUS)
       .sort((a, b) => a.dist - b.dist)
       .slice(0, 8),
+    ...sitesFor(ctx, dist3),
     nearby_agents: ctx
       .others()
       .filter((o) => o.id !== agent.id)
@@ -173,4 +188,50 @@ export function perceive(
     })),
     last_action_result: lastResult,
   };
+}
+
+const SITE_RADIUS = 64;
+
+/** Active building sites within reach of the senses (needs the terrain to lay them out). */
+function sitesFor(
+  ctx: PerceiveContext,
+  dist3: (p: [number, number, number]) => number,
+): Pick<Perception, 'sites'> {
+  const terrain = ctx.world.terrain;
+  const active = ctx.landmarks.sites.active();
+  if (!terrain || active.length === 0) return {};
+  const t = { heightAt: (x: number, z: number) => terrain.heightAt(x, z), seaLevel: SEA_LEVEL };
+  const blockAt = (x: number, y: number, z: number) => BLOCKS[ctx.world.getBlock(x, y, z)]?.name ?? 'air';
+  const out: NonNullable<Perception['sites']> = [];
+  for (const s of active) {
+    const blocks = siteBlocks(s, t);
+    if (blocks.length === 0) continue;
+    let sx = 0;
+    let sz = 0;
+    for (const [x, , z] of blocks) {
+      sx += x;
+      sz += z;
+    }
+    const center: [number, number, number] = [
+      Math.round(sx / blocks.length),
+      s.origin[1],
+      Math.round(sz / blocks.length),
+    ];
+    const dist = dist3(center);
+    if (dist > SITE_RADIUS) continue;
+    const pr = siteProgress(s, t, blockAt);
+    out.push({
+      id: s.id,
+      blueprint: s.blueprint,
+      by: s.by,
+      center,
+      facing: s.facing,
+      dist,
+      progress: `${pr.done}/${pr.total}`,
+      missing: pr.missing,
+      next: pr.next,
+    });
+  }
+  out.sort((a, b) => a.dist - b.dist);
+  return out.length ? { sites: out } : {};
 }

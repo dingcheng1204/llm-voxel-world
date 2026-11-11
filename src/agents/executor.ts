@@ -9,6 +9,8 @@ import type { Action, ActionResult, ActionType } from './actions';
 import { AGENT_BODY, type AgentBody, type AgentWorld } from './AgentBody';
 import { findPath, groundCell, standable, type Cell } from './pathfinding';
 import type { Landmarks } from './worldState';
+import { SEA_LEVEL } from '../world/coords';
+import { commitPlan, planSite } from './building';
 
 export const REACH = 5;
 const MINE_TIME = 0.6;
@@ -36,7 +38,10 @@ type Running =
     }
   | { a: Extract<Action, { type: 'follow' }>; path: Cell[]; i: number; timeLeft: number; agentT: number }
   | {
-      a: Extract<Action, { type: 'mine' | 'place' | 'look_at' | 'wait' | 'idle' | 'name_place' }>;
+      a: Extract<
+        Action,
+        { type: 'mine' | 'place' | 'look_at' | 'wait' | 'idle' | 'name_place' | 'plan_build' }
+      >;
       timer: number;
     };
 
@@ -49,6 +54,7 @@ const VERB: Record<ActionType, string> = {
   place: 'building',
   follow: 'following',
   name_place: 'naming a place',
+  plan_build: 'planning a building',
   wait: 'waiting',
   idle: 'idle',
 };
@@ -187,6 +193,28 @@ export class ActionExecutor {
         this.finish(true);
         return;
       }
+      case 'plan_build': {
+        const terrain = this.ctx.world.terrain;
+        if (!terrain) return this.fail(a, 'cannot plan buildings here');
+        const r = planSite(
+          {
+            blueprint: a.blueprint,
+            cell: this.body.cell,
+            heading: this.body.heading,
+            at: a.at,
+            facing: a.facing,
+            by: this.body.id,
+            now: Date.now(),
+          },
+          { heightAt: (x, z) => terrain.heightAt(x, z), seaLevel: SEA_LEVEL },
+          this.ctx.landmarks.sites,
+        );
+        if (!r.ok) return this.fail(a, r.reason);
+        commitPlan(this.ctx.landmarks.sites, r);
+        this.cur = { a, timer: 0 };
+        this.finish(true);
+        return;
+      }
     }
   }
 
@@ -317,6 +345,7 @@ export class ActionExecutor {
         return;
       }
       case 'name_place':
+      case 'plan_build':
         return;
     }
   }

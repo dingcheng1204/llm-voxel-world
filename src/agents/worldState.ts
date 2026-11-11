@@ -1,4 +1,6 @@
-// Small shared stores the agents read and write: named places and things said aloud.
+// Small shared stores the agents read and write: named places, building sites and things said aloud.
+
+import type { Site } from '../world/blueprints';
 
 export interface Landmark {
   name: string;
@@ -6,8 +8,49 @@ export interface Landmark {
   by: string;
 }
 
+/** Building sites the characters planned. Merged across snapshots: newest `at` wins per id. */
+export class Sites {
+  readonly list: Site[] = [];
+  /** Bumped on every change (renderers rebuild their preview). */
+  version = 0;
+
+  /** Add or update; an older copy (from a stale snapshot) never overwrites a newer one. */
+  merge(s: Site): boolean {
+    const i = this.list.findIndex((x) => x.id === s.id);
+    if (i >= 0) {
+      if (this.list[i]!.at >= s.at) return false;
+      this.list[i] = { ...s };
+    } else {
+      this.list.push({ ...s });
+    }
+    this.version++;
+    return true;
+  }
+
+  get(id: string): Site | undefined {
+    return this.list.find((x) => x.id === id);
+  }
+
+  /** Sites still to build. */
+  active(): Site[] {
+    return this.list.filter((s) => s.status === 'planned');
+  }
+
+  /** Kept in snapshots: every active site plus the most recent finished/cancelled ones. */
+  forSnapshot(max = 12): Site[] {
+    const active = this.active();
+    const rest = this.list
+      .filter((s) => s.status !== 'planned')
+      .sort((a, b) => b.at - a.at)
+      .slice(0, Math.max(0, max - active.length));
+    return [...active, ...rest].slice(0, max);
+  }
+}
+
 export class Landmarks {
   readonly list: Landmark[] = [];
+  /** Building sites live with the named places: both are shared, persisted in every character's snapshot. */
+  readonly sites = new Sites();
 
   add(name: string, pos: [number, number, number], by: string): void {
     const i = this.list.findIndex((l) => l.name.toLowerCase() === name.toLowerCase());

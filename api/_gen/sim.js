@@ -416,6 +416,22 @@ const ActionSchema = z.discriminatedUnion("type", [
 		name: z.string().min(1).max(40)
 	}),
 	z.object({
+		type: z.literal("plan_build"),
+		blueprint: z.enum([
+			"hut",
+			"watchtower",
+			"dock",
+			"garden"
+		]),
+		at: vec3.optional(),
+		facing: z.enum([
+			"south",
+			"west",
+			"north",
+			"east"
+		]).optional()
+	}),
+	z.object({
 		type: z.literal("wait"),
 		seconds: z.number().min(0).max(30)
 	}),
@@ -893,6 +909,444 @@ function findPath(w, start, goal, opts = {}) {
 	return null;
 }
 
+// src/world/blueprints.ts
+const FACINGS = [
+	"south",
+	"west",
+	"north",
+	"east"
+];
+function hut() {
+	const out = [];
+	for (let y = 0; y < 3; y++) for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) {
+		if (!(x === 0 || x === 4 || z === 0 || z === 4)) continue;
+		if (!(z === 4 && x === 2 && y < 2) && !(y === 1 && z === 2 && (x === 0 || x === 4))) out.push([
+			x,
+			y,
+			z,
+			"log"
+		]);
+	}
+	for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) out.push([
+		x,
+		3,
+		z,
+		"leaves"
+	]);
+	for (let x = 1; x < 4; x++) for (let z = 1; z < 4; z++) out.push([
+		x,
+		4,
+		z,
+		"leaves"
+	]);
+	out.push([
+		2,
+		5,
+		2,
+		"leaves"
+	]);
+	return out;
+}
+function watchtower() {
+	const out = [];
+	for (const [x, z] of [
+		[0, 0],
+		[2, 0],
+		[0, 2],
+		[2, 2]
+	]) {
+		for (let y = 0; y < 3; y++) out.push([
+			x,
+			y,
+			z,
+			"log"
+		]);
+		out.push([
+			x,
+			4,
+			z,
+			"log"
+		]);
+	}
+	for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) out.push([
+		x,
+		3,
+		z,
+		"log"
+	]);
+	for (let y = 0; y < 1; y++) out.push([
+		1,
+		y,
+		5,
+		"stone"
+	]);
+	for (let y = 0; y < 2; y++) out.push([
+		1,
+		y,
+		4,
+		"stone"
+	]);
+	for (let y = 0; y < 3; y++) out.push([
+		1,
+		y,
+		3,
+		"stone"
+	]);
+	return out;
+}
+function dock() {
+	const out = [];
+	for (let z = 0; z < 8; z++) for (let x = 0; x < 3; x++) out.push([
+		x,
+		0,
+		z,
+		"log"
+	]);
+	return out;
+}
+function garden() {
+	const out = [];
+	for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) {
+		const corner = (x === 0 || x === 4) && (z === 0 || z === 4);
+		const edge = x === 0 || x === 4 || z === 0 || z === 4;
+		if (corner) out.push([
+			x,
+			0,
+			z,
+			"log"
+		], [
+			x,
+			1,
+			z,
+			"leaves"
+		]);
+		else out.push([
+			x,
+			0,
+			z,
+			edge ? "stone" : "flower_grass"
+		]);
+	}
+	return out;
+}
+const BLUEPRINTS = [
+	{
+		id: "hut",
+		name: "小木屋",
+		summary: "5×5 log cabin with a door, two windows and a leafy roof",
+		w: 5,
+		d: 5,
+		site: "land",
+		blocks: hut()
+	},
+	{
+		id: "watchtower",
+		name: "瞭望台",
+		summary: "3×3 log lookout platform with stone steps in front",
+		w: 3,
+		d: 6,
+		site: "land",
+		blocks: watchtower()
+	},
+	{
+		id: "dock",
+		name: "碼頭",
+		summary: "3×8 log pier from the beach out over the sea (stone posts in the water)",
+		w: 3,
+		d: 8,
+		site: "shore",
+		blocks: dock()
+	},
+	{
+		id: "garden",
+		name: "花圃",
+		summary: "5×5 raised flower bed with a stone border and leafy corner posts",
+		w: 5,
+		d: 5,
+		site: "land",
+		blocks: garden()
+	}
+];
+function blueprint(id) {
+	return BLUEPRINTS.find((b) => b.id === id);
+}
+/** Local (x, z) → offset from the site's min corner, after turning the front to `facing`. */
+function rotate(x, z, bp, facing) {
+	const { w, d } = bp;
+	switch (facing) {
+		case "south": return [x, z];
+		case "west": return [d - 1 - z, x];
+		case "north": return [w - 1 - x, d - 1 - z];
+		case "east": return [z, w - 1 - x];
+	}
+}
+/** Footprint size in world x/z after rotation. */
+function footprint(bp, facing) {
+	return facing === "south" || facing === "north" ? [bp.w, bp.d] : [bp.d, bp.w];
+}
+/**
+* Where exactly a blueprint goes when its footprint's min corner is at (x, z), and every block in world
+* coordinates — including per-site extras (stone foundation under low ground, stone posts under a dock).
+* Deterministic from the terrain, so the browser, the server and the ghost preview all agree.
+*/
+function layoutSite(bp, x0, z0, facing, t) {
+	const [fw, fd] = footprint(bp, facing);
+	const ground = (lx, lz) => {
+		const [ox, oz] = rotate(lx, lz, bp, facing);
+		return t.heightAt(x0 + ox, z0 + oz);
+	};
+	const world = (lx, ly, lz, y0) => {
+		const [ox, oz] = rotate(lx, lz, bp, facing);
+		return [
+			x0 + ox,
+			y0 + ly,
+			z0 + oz
+		];
+	};
+	const blocks = [];
+	if (bp.site === "land") {
+		let lo = Infinity;
+		let hi = -Infinity;
+		for (let lx = 0; lx < bp.w; lx++) for (let lz = 0; lz < bp.d; lz++) {
+			const h = ground(lx, lz);
+			lo = Math.min(lo, h);
+			hi = Math.max(hi, h);
+		}
+		if (lo < t.seaLevel) return {
+			ok: false,
+			reason: "part of this spot is under water"
+		};
+		if (hi - lo > 1) return {
+			ok: false,
+			reason: `the ground here is not flat enough (${fw}×${fd} needs a flat spot)`
+		};
+		const y0 = hi + 1;
+		for (const [lx, ly, lz, m] of bp.blocks) blocks.push([...world(lx, ly, lz, y0), m]);
+		for (let lx = 0; lx < bp.w; lx++) for (let lz = 0; lz < bp.d; lz++) if (ground(lx, lz) < hi) blocks.push([...world(lx, -1, lz, y0), "stone"]);
+		return {
+			ok: true,
+			origin: [
+				x0,
+				y0,
+				z0
+			],
+			blocks
+		};
+	}
+	let landTop = -Infinity;
+	for (let lx = 0; lx < bp.w; lx++) for (let lz = 0; lz < bp.d; lz++) {
+		const h = ground(lx, lz);
+		if (lz < 2) {
+			if (h < t.seaLevel) return {
+				ok: false,
+				reason: "the back of a dock must stand on the beach"
+			};
+			landTop = Math.max(landTop, h);
+		} else if (h >= t.seaLevel) return {
+			ok: false,
+			reason: "the front of a dock must reach out over the sea (face it towards the water)"
+		};
+	}
+	if (landTop > t.seaLevel + 2) return {
+		ok: false,
+		reason: "the beach here is too high for a dock"
+	};
+	const y0 = landTop + 1;
+	for (const [lx, ly, lz, m] of bp.blocks) blocks.push([...world(lx, ly, lz, y0), m]);
+	for (let lz = 3; lz < bp.d; lz += 2) for (const lx of [0, bp.w - 1]) for (let y = y0 - 1; y > ground(lx, lz); y--) blocks.push([...world(lx, y - y0, lz, y0), "stone"]);
+	return {
+		ok: true,
+		origin: [
+			x0,
+			y0,
+			z0
+		],
+		blocks
+	};
+}
+/** Site placed in front of a character: footprint centred on its x (or z), starting `gap` blocks ahead. */
+function siteInFront(bp, cell, facing, gap = 2) {
+	const [fw, fd] = footprint(bp, facing);
+	const [cx, , cz] = cell;
+	switch (facing) {
+		case "south": return {
+			x0: cx - Math.floor(fw / 2),
+			z0: cz - gap - fd + 1
+		};
+		case "north": return {
+			x0: cx - Math.floor(fw / 2),
+			z0: cz + gap
+		};
+		case "west": return {
+			x0: cx + gap,
+			z0: cz - Math.floor(fd / 2)
+		};
+		case "east": return {
+			x0: cx - gap - fw + 1,
+			z0: cz - Math.floor(fd / 2)
+		};
+	}
+}
+
+// src/agents/building.ts
+/** At most this many sites being built at once (island-wide), one per character. */
+const MAX_ACTIVE_SITES = 3;
+const ISLAND$1 = {
+	minX: -96,
+	maxX: 95,
+	minZ: -144,
+	maxZ: 143
+};
+/** Which way a heading looks, snapped to the 4 directions. */
+function lookDirection(heading) {
+	return [
+		"south",
+		"east",
+		"north",
+		"west"
+	][Math.round((heading / (Math.PI * 2) % 1 + 1) % 1 * 4) % 4];
+}
+const OPPOSITE = {
+	south: "north",
+	north: "south",
+	east: "west",
+	west: "east"
+};
+function rect(x0, z0, bp, facing) {
+	const [fw, fd] = footprint(bp, facing);
+	return [
+		x0,
+		z0,
+		x0 + fw - 1,
+		z0 + fd - 1
+	];
+}
+function overlaps(a, b, margin = 1) {
+	return a[0] - margin <= b[2] && a[2] + margin >= b[0] && a[1] - margin <= b[3] && a[3] + margin >= b[1];
+}
+function siteRect(s) {
+	const bp = blueprint(s.blueprint);
+	return bp ? rect(s.origin[0], s.origin[2], bp, s.facing) : null;
+}
+/**
+* Picks a spot for a blueprint: in front of the character by default (the building faces back at it),
+* or centred on `at`. If that spot does not fit (slope, water, another site), tries nearby spots and
+* the other three facings before giving up with a reason the brain can act on.
+*/
+function planSite(input, terrain, sites) {
+	const bp = blueprint(input.blueprint);
+	if (!bp) return {
+		ok: false,
+		reason: `unknown blueprint "${input.blueprint}" (${BLUEPRINTS.map((b) => b.id).join(", ")})`
+	};
+	const mine = sites.active().find((s) => s.by === input.by);
+	const others = sites.active().filter((s) => s.by !== input.by);
+	if (others.length >= 3) return {
+		ok: false,
+		reason: `there are already ${others.length} building sites — help build one of them first`
+	};
+	const preferred = input.facing ?? OPPOSITE[lookDirection(input.heading)];
+	const facings = [preferred, ...FACINGS.filter((f) => f !== preferred)];
+	const offsets = [[0, 0]];
+	for (let r = 1; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r) offsets.push([dx, dz]);
+	let firstReason = "";
+	for (const facing of facings) {
+		const [fw, fd] = footprint(bp, facing);
+		const base = input.at ? {
+			x0: input.at[0] - Math.floor(fw / 2),
+			z0: input.at[2] - Math.floor(fd / 2)
+		} : siteInFront(bp, input.cell, facing);
+		for (const [dx, dz] of offsets) {
+			const x0 = base.x0 + dx;
+			const z0 = base.z0 + dz;
+			const r = rect(x0, z0, bp, facing);
+			if (r[0] < ISLAND$1.minX || r[1] < ISLAND$1.minZ || r[2] > ISLAND$1.maxX || r[3] > ISLAND$1.maxZ) continue;
+			const [cx, , cz] = input.cell;
+			if (cx >= r[0] && cx <= r[2] && cz >= r[1] && cz <= r[3]) continue;
+			if (others.some((s) => {
+				const sr = siteRect(s);
+				return sr !== null && overlaps(r, sr);
+			})) {
+				firstReason ||= "too close to another building site";
+				continue;
+			}
+			const lay = layoutSite(bp, x0, z0, facing, terrain);
+			if (!lay.ok) {
+				firstReason ||= lay.reason;
+				continue;
+			}
+			const site = {
+				id: `${bp.id}@${x0},${z0}`,
+				blueprint: bp.id,
+				origin: lay.origin,
+				facing,
+				by: input.by,
+				at: input.now,
+				status: "planned"
+			};
+			return {
+				ok: true,
+				site,
+				...mine && mine.id !== site.id ? { replaced: mine } : {}
+			};
+		}
+	}
+	const hint = bp.site === "shore" ? " — stand on the beach facing the sea" : " — find a flatter, dry spot";
+	return {
+		ok: false,
+		reason: `no room for a ${bp.id} here (${firstReason || "no fitting spot"})${hint}`
+	};
+}
+/** Commits a planned site to the shared list (cancelling the character's previous unfinished one). */
+function commitPlan(sites, r) {
+	if (r.replaced) sites.merge({
+		...r.replaced,
+		status: "cancelled",
+		at: r.site.at
+	});
+	sites.merge(r.site);
+}
+const layoutCache = /* @__PURE__ */ new Map();
+/** The site's blocks in world coordinates (cached per site id + origin). */
+function siteBlocks(site, terrain) {
+	const key = `${site.id}|${site.origin.join(",")}|${site.facing}`;
+	const hit = layoutCache.get(key);
+	if (hit) return hit;
+	const bp = blueprint(site.blueprint);
+	if (!bp) return [];
+	const lay = layoutSite(bp, site.origin[0], site.origin[2], site.facing, terrain);
+	const blocks = lay.ok ? lay.blocks : [];
+	if (layoutCache.size > 64) layoutCache.clear();
+	layoutCache.set(key, blocks);
+	return blocks;
+}
+/** How much of a site is already standing (any builder counts — characters and players). */
+function siteProgress(site, terrain, blockAt, nextCount = 3) {
+	const blocks = siteBlocks(site, terrain);
+	const missing = {};
+	const todo = [];
+	let done = 0;
+	for (const [x, y, z, m] of blocks) if (blockAt(x, y, z) === m) done++;
+	else {
+		missing[m] = (missing[m] ?? 0) + 1;
+		todo.push({
+			pos: [
+				x,
+				y,
+				z
+			],
+			block: m
+		});
+	}
+	todo.sort((a, b) => a.pos[1] - b.pos[1]);
+	return {
+		done,
+		total: blocks.length,
+		missing,
+		next: todo.slice(0, nextCount)
+	};
+}
+
 // src/agents/executor.ts
 const REACH = 5;
 const MINE_TIME = .6;
@@ -904,6 +1358,7 @@ const VERB = {
 	place: "building",
 	follow: "following",
 	name_place: "naming a place",
+	plan_build: "planning a building",
 	wait: "waiting",
 	idle: "idle"
 };
@@ -1061,6 +1516,30 @@ var ActionExecutor = class {
 				};
 				this.finish(true);
 				return;
+			case "plan_build": {
+				const terrain = this.ctx.world.terrain;
+				if (!terrain) return this.fail(a, "cannot plan buildings here");
+				const r = planSite({
+					blueprint: a.blueprint,
+					cell: this.body.cell,
+					heading: this.body.heading,
+					at: a.at,
+					facing: a.facing,
+					by: this.body.id,
+					now: Date.now()
+				}, {
+					heightAt: (x, z) => terrain.heightAt(x, z),
+					seaLevel: 20
+				}, this.ctx.landmarks.sites);
+				if (!r.ok) return this.fail(a, r.reason);
+				commitPlan(this.ctx.landmarks.sites, r);
+				this.cur = {
+					a,
+					timer: 0
+				};
+				this.finish(true);
+				return;
+			}
 		}
 	}
 	fail(a, reason) {
@@ -1200,7 +1679,8 @@ var ActionExecutor = class {
 				if (t.timer <= 0) this.finish(true);
 				return;
 			}
-			case "name_place": return;
+			case "name_place":
+			case "plan_build": return;
 		}
 	}
 	/** Steer along the current path. */
@@ -1400,6 +1880,7 @@ function perceive(agent, inventory, lastResult, lastHeard, ctx) {
 			pos: l.pos,
 			dist: dist3(l.pos)
 		})).filter((l) => l.dist <= 96).sort((a, b) => a.dist - b.dist).slice(0, 8),
+		...sitesFor(ctx, dist3),
 		nearby_agents: ctx.others().filter((o) => o.id !== agent.id).map((o) => ({
 			id: o.id,
 			...o.name && o.name !== o.id ? { name: o.name } : {},
@@ -1416,6 +1897,50 @@ function perceive(agent, inventory, lastResult, lastHeard, ctx) {
 		})),
 		last_action_result: lastResult
 	};
+}
+const SITE_RADIUS = 64;
+/** Active building sites within reach of the senses (needs the terrain to lay them out). */
+function sitesFor(ctx, dist3) {
+	const terrain = ctx.world.terrain;
+	const active = ctx.landmarks.sites.active();
+	if (!terrain || active.length === 0) return {};
+	const t = {
+		heightAt: (x, z) => terrain.heightAt(x, z),
+		seaLevel: 20
+	};
+	const blockAt = (x, y, z) => BLOCKS[ctx.world.getBlock(x, y, z)]?.name ?? "air";
+	const out = [];
+	for (const s of active) {
+		const blocks = siteBlocks(s, t);
+		if (blocks.length === 0) continue;
+		let sx = 0;
+		let sz = 0;
+		for (const [x, , z] of blocks) {
+			sx += x;
+			sz += z;
+		}
+		const center = [
+			Math.round(sx / blocks.length),
+			s.origin[1],
+			Math.round(sz / blocks.length)
+		];
+		const dist = dist3(center);
+		if (dist > SITE_RADIUS) continue;
+		const pr = siteProgress(s, t, blockAt);
+		out.push({
+			id: s.id,
+			blueprint: s.blueprint,
+			by: s.by,
+			center,
+			facing: s.facing,
+			dist,
+			progress: `${pr.done}/${pr.total}`,
+			missing: pr.missing,
+			next: pr.next
+		});
+	}
+	out.sort((a, b) => a.dist - b.dist);
+	return out.length ? { sites: out } : {};
 }
 
 // src/agents/Agent.ts
@@ -1601,6 +2126,30 @@ const SnapshotSchema = z.object({
 		]),
 		by: z.string().max(32)
 	})).max(50).default([]),
+	/** Building sites (shared, like landmarks). Layouts are recomputed from the terrain, only the choice is kept. */
+	sites: z.array(z.object({
+		id: z.string().min(1).max(48),
+		blueprint: z.string().regex(/^[a-z_]{1,24}$/),
+		origin: z.tuple([
+			z.number().int().min(ISLAND.minX).max(ISLAND.maxX),
+			z.number().int().min(ISLAND.minY).max(ISLAND.maxY),
+			z.number().int().min(ISLAND.minZ).max(ISLAND.maxZ)
+		]),
+		facing: z.enum([
+			"south",
+			"west",
+			"north",
+			"east"
+		]),
+		by: z.string().max(32),
+		at: z.number(),
+		status: z.enum([
+			"planned",
+			"done",
+			"cancelled"
+		]),
+		name: z.string().min(1).max(40).optional()
+	})).max(12).default([]),
 	thought: z.string().max(400).default(""),
 	/** Epoch ms of the thought (for the bubble). */
 	thoughtAt: z.number().default(0),
@@ -1629,6 +2178,7 @@ function takeSnapshot(agent, landmarks, lastThinkAt = Date.now()) {
 			pos: l.pos,
 			by: l.by
 		})),
+		sites: landmarks.sites.forSnapshot(),
 		thought: agent.thought.slice(0, 400),
 		thoughtAt: agent.thoughtAt,
 		lastThinkAt,
@@ -1648,6 +2198,7 @@ function restoreSnapshot(agent, s, landmarks) {
 	agent.executor.inventory.clear();
 	for (const [k, v] of Object.entries(s.inventory)) agent.executor.inventory.set(k, v);
 	for (const l of s.landmarks) landmarks.add(l.name, l.pos, l.by);
+	for (const site of s.sites) landmarks.sites.merge(site);
 	showSnapshotLines(agent, s);
 	agent.executor.lastResult = s.lastResult;
 }
@@ -1665,8 +2216,39 @@ function showSnapshotLines(agent, s) {
 const round = (v) => Math.round(v * 1e3) / 1e3;
 
 // src/agents/worldState.ts
+/** Building sites the characters planned. Merged across snapshots: newest `at` wins per id. */
+var Sites = class {
+	list = [];
+	/** Bumped on every change (renderers rebuild their preview). */
+	version = 0;
+	/** Add or update; an older copy (from a stale snapshot) never overwrites a newer one. */
+	merge(s) {
+		const i = this.list.findIndex((x) => x.id === s.id);
+		if (i >= 0) {
+			if (this.list[i].at >= s.at) return false;
+			this.list[i] = { ...s };
+		} else this.list.push({ ...s });
+		this.version++;
+		return true;
+	}
+	get(id) {
+		return this.list.find((x) => x.id === id);
+	}
+	/** Sites still to build. */
+	active() {
+		return this.list.filter((s) => s.status === "planned");
+	}
+	/** Kept in snapshots: every active site plus the most recent finished/cancelled ones. */
+	forSnapshot(max = 12) {
+		const active = this.active();
+		const rest = this.list.filter((s) => s.status !== "planned").sort((a, b) => b.at - a.at).slice(0, Math.max(0, max - active.length));
+		return [...active, ...rest].slice(0, max);
+	}
+};
 var Landmarks = class {
 	list = [];
+	/** Building sites live with the named places: both are shared, persisted in every character's snapshot. */
+	sites = new Sites();
 	add(name, pos, by) {
 		const i = this.list.findIndex((l) => l.name.toLowerCase() === name.toLowerCase());
 		const l = {

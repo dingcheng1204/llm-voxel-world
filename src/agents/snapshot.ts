@@ -32,6 +32,26 @@ export const SnapshotSchema = z.object({
     )
     .max(50)
     .default([]),
+  /** Building sites (shared, like landmarks). Layouts are recomputed from the terrain, only the choice is kept. */
+  sites: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(48),
+        blueprint: z.string().regex(/^[a-z_]{1,24}$/),
+        origin: z.tuple([
+          z.number().int().min(ISLAND.minX).max(ISLAND.maxX),
+          z.number().int().min(ISLAND.minY).max(ISLAND.maxY),
+          z.number().int().min(ISLAND.minZ).max(ISLAND.maxZ),
+        ]),
+        facing: z.enum(['south', 'west', 'north', 'east']),
+        by: z.string().max(32),
+        at: z.number(),
+        status: z.enum(['planned', 'done', 'cancelled']),
+        name: z.string().min(1).max(40).optional(),
+      }),
+    )
+    .max(12)
+    .default([]),
   thought: z.string().max(400).default(''),
   /** Epoch ms of the thought (for the bubble). */
   thoughtAt: z.number().default(0),
@@ -61,6 +81,7 @@ export function takeSnapshot(agent: Agent, landmarks: Landmarks, lastThinkAt = D
     heading: round(agent.body.heading),
     inventory: Object.fromEntries(agent.executor.inventory),
     landmarks: landmarks.list.slice(-50).map((l) => ({ name: l.name, pos: l.pos, by: l.by })),
+    sites: landmarks.sites.forSnapshot(),
     thought: agent.thought.slice(0, 400),
     thoughtAt: agent.thoughtAt,
     lastThinkAt,
@@ -85,6 +106,7 @@ export function restoreSnapshot(agent: Agent, s: AgentSnapshot, landmarks: Landm
   agent.executor.inventory.clear();
   for (const [k, v] of Object.entries(s.inventory)) agent.executor.inventory.set(k, v);
   for (const l of s.landmarks) landmarks.add(l.name, l.pos, l.by);
+  for (const site of s.sites) landmarks.sites.merge(site);
   showSnapshotLines(agent, s);
   agent.executor.lastResult = s.lastResult as ActionResult | null;
 }

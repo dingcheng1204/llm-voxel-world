@@ -34,6 +34,8 @@ import { RemotePlayers } from './multiplayer/RemotePlayers';
 import { createModel, PLAYER_SPECIES, type PlayerSpecies } from './agents/species';
 import { createNameTag } from './scene/nameTag';
 import { ChatWindow } from './ui/chat';
+import { SiteGhosts } from './scene/sites';
+import { blueprint } from './world/blueprints';
 import { Minimap } from './ui/minimap';
 import { isScriptPlace, type MapMarker } from './ui/islandMap';
 
@@ -157,6 +159,14 @@ for (const a of agents) {
 save.saveBy = (by) => by === 'player' || syncs.get(by)?.role === 'driver';
 const views = agents.map((a) => new AgentView(a));
 for (const v of views) ctx.scene.add(v.root, v.pathLine);
+// Building sites the characters planned: translucent blocks still to place, with a sign above.
+const siteGhosts = new SiteGhosts(
+  world,
+  landmarks.sites,
+  (id) => agents.find((a) => a.id === id)?.member.name ?? id,
+  (id) => agents.find((a) => a.id === id)?.member.tagColor ?? '#5b6b86',
+);
+ctx.scene.add(siteGhosts.group);
 // ?lineup=1 also stands up the three animals players can pick, to check the models.
 const lineupModels = lineup
   ? PLAYER_SPECIES.map((sp, i) => {
@@ -211,6 +221,15 @@ const minimap = player
           label: l.name,
           color: '#3a3550',
         }));
+      for (const site of landmarks.sites.active()) {
+        out.push({
+          kind: 'site',
+          x: site.origin[0] + 1.5,
+          z: site.origin[2] + 1.5,
+          label: blueprint(site.blueprint)?.name ?? site.blueprint,
+          color: agents.find((a) => a.id === site.by)?.member.tagColor ?? '#5b6b86',
+        });
+      }
       for (const a of agents) {
         out.push({
           kind: 'character',
@@ -450,6 +469,7 @@ const loop = new GameLoop(
       dayNight.update(cam, world.fires);
       for (const v of views) v.render(alpha, time, !debugEl.hidden);
       remote?.update(frameDt, time);
+      siteGhosts.update(time, performance.now());
       minimap?.update(performance.now());
       for (const m of lineupModels) m.animate(time, 0);
       if (player && island) {
@@ -523,6 +543,7 @@ Object.assign(window, {
       return chatWindow;
     },
     minimap,
+    siteGhosts,
   },
 });
 
@@ -530,6 +551,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     loop.stop();
     world.dispose();
+    siteGhosts.dispose();
     ctx.dispose();
   });
 }

@@ -3,6 +3,7 @@
 
 import type { Persona } from './personas.js';
 import type { Perception } from './perceive.js';
+import { blueprintCatalog } from '../world/blueprints.js';
 
 export interface ChatMessage {
   role: 'system' | 'user';
@@ -73,6 +74,8 @@ Reply with ONE JSON object and nothing else (no markdown):
   {"type":"place","target":[x,y,z],"block":"name"}   (must be in your inventory; next to another block)
   {"type":"follow","agent":"id","seconds":1-60}
   {"type":"name_place","name":"short name"}     (names your current position)
+  {"type":"plan_build","blueprint":"hut|watchtower|dock|garden"}   (marks out a building site in front of you;
+     optional "at":[x,y,z] to centre it there, "facing":"south|west|north|east" for its front)
   {"type":"wait","seconds":0-30} | {"type":"idle"}
 - Use positions from "nearest", "landmarks", "nearby_agents" and "looking_at". To mine something far away,
   walk_to it first, then mine it in a later turn.
@@ -83,6 +86,13 @@ Reply with ONE JSON object and nothing else (no markdown):
 - "conversation" tells you how a talk with someone is going. "waiting_for_reply": you already spoke to them —
   do NOT speak (say null); give them time, do something nearby or wait. "cooldown": the conversation is over —
   say null and go do something else. "active": you may answer, briefly (exchanges_left lines remain).
+- Building: you can choose one of these blueprints and mark out a site with plan_build:
+${blueprintCatalog()}
+  Pick a blueprint that suits the spot (a dock needs a beach facing the sea; the others need flat dry ground) and
+  talk it over with the others first — building is meant to be done together. You can have one site at a time
+  (a new plan replaces your unfinished one). "sites" in your senses shows sites being built, how far along they
+  are ("progress"), which materials are still "missing" and the "next" blocks to place. Gather those materials
+  (mine logs from trees, leaves, stone, flower_grass in the meadow) and place them at the "next" positions.
 - Vary what you do: explore new areas, investigate interesting blocks, visit others, name nice places.
 - Use your memory: don't redo what you just did, follow up on plans and questions from earlier days, and if you
   have stayed in the same small area for a while, go somewhere new. Work towards your goals when it makes sense.`;

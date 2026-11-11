@@ -159,6 +159,7 @@ export class AgentSync {
       }
       showSnapshotLines(this.agent, state);
       for (const l of state.landmarks) this.landmarks.add(l.name, l.pos, l.by);
+      for (const site of state.sites) this.landmarks.sites.merge(site);
       this.agent.executor.inventory.clear();
       for (const [k, v] of Object.entries(state.inventory)) this.agent.executor.inventory.set(k, v);
     }

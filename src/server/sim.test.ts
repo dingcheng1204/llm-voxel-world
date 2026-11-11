@@ -67,6 +67,7 @@ describe('createSim', () => {
       heading: 0,
       inventory: {},
       landmarks: [],
+      sites: [],
       thought: '',
       thoughtAt: 0,
       lastThinkAt: 0,

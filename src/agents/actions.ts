@@ -23,6 +23,12 @@ export const ActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('place'), target: vec3, block: z.enum(blockNames) }),
   z.object({ type: z.literal('follow'), agent: z.string().max(32), seconds: z.number().min(1).max(60) }),
   z.object({ type: z.literal('name_place'), name: z.string().min(1).max(40) }),
+  z.object({
+    type: z.literal('plan_build'),
+    blueprint: z.enum(['hut', 'watchtower', 'dock', 'garden']),
+    at: vec3.optional(),
+    facing: z.enum(['south', 'west', 'north', 'east']).optional(),
+  }),
   z.object({ type: z.literal('wait'), seconds: z.number().min(0).max(30) }),
   z.object({ type: z.literal('idle') }),
 ]);

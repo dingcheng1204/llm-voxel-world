@@ -77,7 +77,7 @@ export function toMap(x: number, z: number): [number, number] {
 }
 
 export interface MapMarker {
-  kind: 'me' | 'character' | 'player' | 'place';
+  kind: 'me' | 'character' | 'player' | 'place' | 'site';
   x: number;
   z: number;
   label: string;
@@ -110,7 +110,7 @@ export function drawMap(
   ctx.drawImage(base, 0, 0, MAP_BOUNDS.width * s, MAP_BOUNDS.height * s);
   const font = o.font ?? '600 12px ui-rounded, system-ui, sans-serif';
   // Places first (under the moving markers), then players, characters, and me on top.
-  const order: MapMarker['kind'][] = ['place', 'player', 'character', 'me'];
+  const order: MapMarker['kind'][] = ['place', 'site', 'player', 'character', 'me'];
   const sorted = [...markers].sort(
     (a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || Number(!!a.highlight) - Number(!!b.highlight),
   );
@@ -148,6 +148,12 @@ export function drawMap(
       ctx.strokeStyle = '#3a3550';
       ctx.fill();
       ctx.stroke();
+    } else if (m.kind === 'site') {
+      // Building site: a little square in the planner's colour.
+      const r = 4.5 * k;
+      ctx.fillStyle = m.color;
+      ctx.fillRect(-r, -r, r * 2, r * 2);
+      ctx.strokeRect(-r, -r, r * 2, r * 2);
     } else if (m.kind === 'me') {
       ctx.rotate(m.heading ?? 0);
       ctx.scale(k + 0.15, k + 0.15);

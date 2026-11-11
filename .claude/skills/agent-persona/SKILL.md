@@ -106,6 +106,7 @@ Allowed action types (max 3 per response, executed in order):
 | `place`     | `target: [x,y,z]`, `block: name`    | must be in inventory |
 | `follow`    | `agent: id`, `seconds: n` (≤ 60)    | |
 | `name_place`| `name: string`                      | creates a landmark at current position |
+| `plan_build`| `blueprint: hut\|watchtower\|dock\|garden`, optional `at: [x,y,z]`, `facing` | marks out a building site (see §13) |
 | `wait`      | `seconds: n` (≤ 30)                 | |
 | `idle`      | —                                   | |
 
@@ -233,3 +234,21 @@ characters think (in parallel) and are saved; the others are puppets at their sa
 written to `messages` by `agent_log_think` (with `heard_by`), and the tick loads the last 10 minutes so
 characters hear each other across ticks (`lastThinkAt` in the snapshot marks what is new).
 Gemini's OpenAI layer takes `max_tokens` (MiniMax: `max_completion_tokens`).
+
+## 13. Building together (phase 6)
+
+- Blueprints live in `src/world/blueprints.ts` (pure data, no imports — the prompt imports it with `.js`).
+  Only gatherable materials (log, leaves, stone, flower_grass; there is no crafting). Local frame: front = z = d−1;
+  `facing` turns the front south/west/north/east. Keep each blueprint under 100 blocks.
+- `layoutSite()` turns (blueprint, min corner, facing) into world blocks from the **generated terrain** (edits ignored)
+  — land sites need dry ground with ≤ 1 block height difference (dips get a stone foundation); a dock needs its back
+  two rows on the beach and the rest over the sea (stone posts down to the sea floor). Deterministic, so browser,
+  server and preview agree.
+- `plan_build` (`src/agents/building.ts` → `planSite`) puts the site in front of the character (the building faces
+  back at it), or centred on `at`; tries nearby spots and other facings, keeps 1 block away from other sites.
+  One active site per character (a new plan cancels its unfinished one), at most 3 on the island.
+- Sites are stored like landmarks: `Landmarks.sites` (`Sites`), saved in every snapshot (`sites`, ≤ 12), merged
+  newest-`at`-wins. Perception `sites` (within 64 blocks): progress `done/total`, `missing` materials and the
+  lowest `next` blocks. Any block placed by anyone that matches counts as done.
+- The game draws unbuilt blocks as translucent ghosts with a sign (`scene/sites.ts`) and squares on the minimap.
+- Next: building with the existing `mine`/`place` actions, splitting work, finishing → landmark + diary.

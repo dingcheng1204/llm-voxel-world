@@ -39,6 +39,7 @@ export function describeAction(a: unknown): string {
   if (!a || typeof a !== 'object') return '?';
   const o = a as Record<string, unknown>;
   const type = String(o.type ?? '?');
+  if (o.blueprint) return `${type} ${String(o.blueprint)}${o.facing ? ` facing ${String(o.facing)}` : ''}`;
   if (Array.isArray(o.target))
     return `${type} [${o.target.join(',')}]${o.block ? ` ${String(o.block)}` : ''}`;
   if (o.landmark) return `${type} "${String(o.landmark)}"`;

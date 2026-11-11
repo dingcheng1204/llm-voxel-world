@@ -8,6 +8,8 @@ export interface AgentWorld {
   isSolid(x: number, y: number, z: number): boolean;
   setBlock(x: number, y: number, z: number, id: number, by?: string): boolean;
   isLoaded(x: number, z: number): boolean;
+  /** Generated terrain (heights ignore edits) — used to lay out building sites. */
+  terrain?: { heightAt(x: number, z: number): number };
 }
 
 /** Same for every species — the cast differs only in looks (agent-persona skill). */
