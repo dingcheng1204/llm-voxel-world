@@ -29,6 +29,10 @@ export class Agent {
   readonly body: AgentBody;
   readonly executor: ActionExecutor;
   thought = '';
+  /** When the current thought was formed (ms epoch) — for the thought bubble. */
+  thoughtAt = 0;
+  /** Last line said aloud and when (ms epoch) — for the speech bubble. */
+  lastSay: { text: string; at: number } | null = null;
   lastPerception: Perception | null = null;
   readonly events: AgentEvent[] = [];
   private cooldown = 0;
@@ -106,6 +110,7 @@ export class Agent {
 
   private apply(value: AgentResponse, simTime: number): void {
     this.thought = value.thought;
+    this.thoughtAt = Date.now();
     this.log('think', { thought: value.thought, actions: value.actions });
     if (value.say) {
       const [x, y, z] = this.body.cell;
@@ -117,6 +122,7 @@ export class Agent {
         clock: this.ctx.perceive.clock.clock,
       });
       this.log('say', value.say);
+      this.lastSay = { text: value.say, at: Date.now() };
     }
     this.executor.enqueue(value.actions);
   }

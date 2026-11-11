@@ -1,4 +1,10 @@
 // Runtime settings. Override any of them with URL params, e.g. ?rd=8&pr=1&seed=42
+import { SUPABASE_ANON_KEY as DEFAULT_ANON, SUPABASE_URL as DEFAULT_URL } from '../config/supabase';
+
+// Override with VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY to point at another project.
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? DEFAULT_URL;
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? DEFAULT_ANON;
+
 export interface GameConfig {
   seed: number;
   /** Chunk radius rendered around the camera. */
@@ -16,14 +22,6 @@ export interface GameConfig {
   /** ?reset=1 clears this browser's local save on start. */
   resetLocal: boolean;
 }
-
-// Public project values (safe in the browser — RLS + the edge function guard all writes).
-// Override with VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.
-const SUPABASE_URL =
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? 'https://payozwqnnjmoicomoeej.supabase.co';
-const SUPABASE_ANON_KEY =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBheW96d3Fubmptb2ljb21vZWVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQzMjE4ODMsImV4cCI6MjEwOTg5Nzg4M30.2ryVbZ3Fog0Y96QYC7fpq8BUNJhETTL9NBkr4QXwFfE';
 
 export function loadConfig(search = location.search): GameConfig {
   const q = new URLSearchParams(search);

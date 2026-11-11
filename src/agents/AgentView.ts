@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Bubble } from '../scene/bubble';
 import { createNameTag } from '../scene/nameTag';
 import type { Agent } from './Agent';
 import { wrapAngle } from './AgentBody';
@@ -13,6 +14,9 @@ export class AgentView {
   private statusText = '';
   readonly pathLine: THREE.Line;
   private pathRef: unknown = null;
+  private readonly speech = new Bubble('speech');
+  private readonly thoughtBubble = new Bubble('thought');
+  private readonly bubbleY: number;
 
   constructor(private readonly agent: Agent) {
     const m = agent.member;
@@ -38,6 +42,11 @@ export class AgentView {
     this.status.visible = false;
     this.root.add(this.status);
 
+    this.bubbleY = tag.position.y + 0.32;
+    this.speech.sprite.position.y = this.bubbleY;
+    this.thoughtBubble.sprite.position.y = this.bubbleY;
+    this.root.add(this.speech.sprite, this.thoughtBubble.sprite);
+
     this.pathLine = new THREE.Line(
       new THREE.BufferGeometry(),
       new THREE.LineBasicMaterial({
@@ -59,6 +68,8 @@ export class AgentView {
     this.root.rotation.y = b.prevHeading + wrapAngle(b.heading - b.prevHeading) * alpha;
     this.model.animate(time, b.speed);
 
+    this.updateBubbles();
+
     this.status.visible = debug;
     this.pathLine.visible = debug;
     if (!debug) return;
@@ -70,6 +81,27 @@ export class AgentView {
       const pts = ex.path.map(([x, y, z]) => new THREE.Vector3(x + 0.5, y + 0.15, z + 0.5));
       this.pathLine.geometry.dispose();
       this.pathLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    }
+  }
+
+  /** Speech for 7 s after `say`; thought bubble for 5 s after each think (LLM brains only). */
+  private updateBubbles(): void {
+    const now = Date.now();
+    const say = this.agent.lastSay;
+    const sayAge = say ? (now - say.at) / 1000 : Infinity;
+    if (say && sayAge < 7) {
+      this.speech.show(say.text, Math.min(1, (7 - sayAge) / 0.6));
+    } else {
+      this.speech.hide();
+    }
+    const showsThoughts = (this.agent.brain as { showsThoughts?: boolean }).showsThoughts === true;
+    const tAge = (now - this.agent.thoughtAt) / 1000;
+    if (showsThoughts && this.agent.thought && tAge < 5) {
+      // Stack above the speech bubble when both are visible.
+      this.thoughtBubble.sprite.position.y = this.speech.sprite.visible ? this.bubbleY + 1.15 : this.bubbleY;
+      this.thoughtBubble.show(this.agent.thought, Math.min(1, (5 - tAge) / 0.6) * 0.95);
+    } else {
+      this.thoughtBubble.hide();
     }
   }
 

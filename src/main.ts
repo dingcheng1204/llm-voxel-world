@@ -10,6 +10,7 @@ import { createProps } from './scene/props';
 import { Agent } from './agents/Agent';
 import { AgentView } from './agents/AgentView';
 import { DemoBrain } from './agents/brains/demo';
+import { LlmBrain } from './agents/brains/llm';
 import { CAST } from './agents/cast';
 import { ChatLog, Landmarks } from './agents/worldState';
 import { Hotbar } from './player/hotbar';
@@ -78,18 +79,17 @@ const agentCtx = {
     now: 0,
   },
 };
-// Phase 3: scripted brains (same JSON contract as the LLM brains coming in phase 4).
-// Cat and wolf gather wood; fox and snake explore and name places.
+// Brains: Clio (cat) thinks with an LLM via /api/agent/think (MiniMax M3.1 Flash; the server enforces a
+// shared daily budget and rate limit). If the API is unavailable Clio falls back to the script.
+// The others still run scripted brains (same JSON contract). ?brain=demo forces scripts for everyone.
+const llmAgents = new Set(new URLSearchParams(location.search).get('brain') === 'demo' ? [] : ['clio']);
 const agents: Agent[] = CAST.map((m, i) => {
   const s = spawns[i]!;
   const home: [number, number, number] = [Math.floor(s.x), Math.floor(s.y), Math.floor(s.z)];
-  const brain = new DemoBrain(
-    m.species === 'cat' || m.species === 'wolf' ? 'gather' : 'explore',
-    home,
-    Math.random,
-    25,
-  );
-  return new Agent(m, s, brain, agentCtx, 1.5);
+  const mode = m.species === 'cat' || m.species === 'wolf' ? 'gather' : 'explore';
+  const script = new DemoBrain(mode, home, Math.random, 25);
+  if (llmAgents.has(m.id)) return new Agent(m, s, new LlmBrain(m.id, script), agentCtx); // 6 s between thinks
+  return new Agent(m, s, script, agentCtx, 1.5);
 });
 const views = agents.map((a) => new AgentView(a));
 for (const v of views) ctx.scene.add(v.root, v.pathLine);
@@ -197,6 +197,17 @@ overlay.setExtra(() => {
     props: world.terrain.props.length,
     agents: agents.map((a) => `${a.member.name}:${a.executor.doing}`).join(' '),
     landmarks: landmarks.list.length,
+    ...Object.fromEntries(
+      agents
+        .filter((a) => a.brain instanceof LlmBrain)
+        .map((a) => {
+          const st = (a.brain as LlmBrain).stats;
+          return [
+            `${a.id} brain`,
+            `${st.mode}  calls ${st.calls}  $${st.cost.toFixed(4)}  today $${st.spentToday.toFixed(3)}/${st.budget || '?'}  ${st.lastMs}ms${st.lastError ? `  (${st.lastError})` : ''}`,
+          ];
+        }),
+    ),
     pos: `${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}`,
     ...(player
       ? {

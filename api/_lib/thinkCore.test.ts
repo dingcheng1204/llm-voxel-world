@@ -1,0 +1,146 @@
+import { describe, expect, it } from 'vitest';
+import { extractJson, handleThink, secondsUntilTaipeiMidnight } from './thinkCore';
+
+const perception = {
+  time: { day: 3, clock: '10:00', phase: 'day' },
+  self: { id: 'clio', pos: [0, 23, 30], facing: 'north', inventory: {} },
+  looking_at: null,
+  nearby_blocks: { sand: 10 },
+  nearest: { log: { pos: [3, 23, 33], dist: 4.2 } },
+  landmarks: [],
+  nearby_agents: [],
+  heard: [],
+  last_action_result: null,
+};
+
+const env = { MINIMAX_API_KEY_1: 'k', AGENT_DB_SECRET: 's' };
+
+function fakeFetch(opts: { spent?: number; calls?: number; reply?: string; modelStatus?: number } = {}) {
+  const calls: { url: string; body: unknown }[] = [];
+  const f = (async (url: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ url, body });
+    if (url.endsWith('/rpc/agent_budget')) {
+      return new Response(
+        JSON.stringify({ spent_today: opts.spent ?? 0, calls_last_minute: opts.calls ?? 0 }),
+      );
+    }
+    if (url.endsWith('/rpc/agent_log_think')) return new Response('');
+    if (url.endsWith('/chat/completions')) {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  opts.reply ??
+                  '{"thought":"想看看那棵樹","say":"你好呀","actions":[{"type":"walk_to","target":[3,23,33]}]}',
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 2000,
+            completion_tokens: 300,
+            prompt_tokens_details: { cached_tokens: 1500 },
+          },
+        }),
+        { status: opts.modelStatus ?? 200 },
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as unknown as typeof fetch;
+  return { f, calls };
+}
+
+const post = (body: unknown) =>
+  new Request('http://x/api/agent/think', { method: 'POST', body: JSON.stringify(body) });
+
+describe('handleThink', () => {
+  it('calls the model, returns parsed JSON and logs usage with the right cost', async () => {
+    const { f, calls } = fakeFetch();
+    const res = await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.raw.say).toBe('你好呀');
+    // (500 × 0.15 + 1500 × 0.015 + 300 × 0.6) / 1e6
+    expect(data.cost).toBeCloseTo((500 * 0.15 + 1500 * 0.015 + 300 * 0.6) / 1e6, 9);
+    const model = calls.find((c) => c.url.endsWith('/chat/completions'))!.body as Record<string, unknown>;
+    expect(model.model).toBe('MiniMax-M3.1-Flash');
+    expect(model.reasoning_effort).toBe('low');
+    expect(calls.some((c) => c.url.endsWith('/rpc/agent_log_think'))).toBe(true);
+  });
+
+  it('refuses agents without an LLM brain', async () => {
+    const res = await handleThink(post({ agentId: 'gem', perception }), { fetch: fakeFetch().f, env });
+    expect(res.status).toBe(403);
+  });
+
+  it('stops at the daily budget and does not call the model', async () => {
+    const { f, calls } = fakeFetch({ spent: 0.5 });
+    const res = await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env });
+    expect(res.status).toBe(429);
+    expect(calls.some((c) => c.url.endsWith('/chat/completions'))).toBe(false);
+  });
+
+  it('applies the global rate limit', async () => {
+    const res = await handleThink(post({ agentId: 'clio', perception }), {
+      fetch: fakeFetch({ calls: 20 }).f,
+      env,
+    });
+    expect(res.status).toBe(429);
+  });
+
+  it('fails closed without the budget secret or the key', async () => {
+    const { f, calls } = fakeFetch();
+    expect(
+      (
+        await handleThink(post({ agentId: 'clio', perception }), {
+          fetch: f,
+          env: { MINIMAX_API_KEY_1: 'k' },
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      (await handleThink(post({ agentId: 'clio', perception }), { fetch: f, env: { AGENT_DB_SECRET: 's' } }))
+        .status,
+    ).toBe(503);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('reports model errors without leaking details', async () => {
+    const res = await handleThink(post({ agentId: 'clio', perception }), {
+      fetch: fakeFetch({ modelStatus: 401 }).f,
+      env,
+    });
+    expect(res.status).toBe(502);
+  });
+
+  it('rejects bad input', async () => {
+    const { f } = fakeFetch();
+    expect((await handleThink(new Request('http://x', { method: 'GET' }), { fetch: f, env })).status).toBe(
+      405,
+    );
+    expect((await handleThink(post({ agentId: 'clio' }), { fetch: f, env })).status).toBe(400);
+    expect(
+      (
+        await handleThink(post({ agentId: 'clio', perception: { ...perception, pad: 'x'.repeat(30000) } }), {
+          fetch: f,
+          env,
+        })
+      ).status,
+    ).toBe(413);
+  });
+});
+
+describe('helpers', () => {
+  it('extracts JSON from fenced / chatty replies', () => {
+    expect(extractJson('好的！\n```json\n{"a":1}\n```')).toEqual({ a: 1 });
+    expect(extractJson('<think>hmm</think>{"b":2} done')).toEqual({ b: 2 });
+    expect(extractJson('no json here')).toBeNull();
+  });
+
+  it('computes time until Taipei midnight', () => {
+    // 2026-01-01T15:00:00Z = 23:00 in Taipei → 1 hour left
+    expect(secondsUntilTaipeiMidnight(Date.UTC(2026, 0, 1, 15))).toBe(3600);
+  });
+});
