@@ -24,6 +24,8 @@ export interface ThinkDeps {
   fetch: typeof fetch;
   env: Record<string, string | undefined>;
   now?: () => number;
+  /** Wait before a retry (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
@@ -51,6 +53,8 @@ export interface BrainConfig {
   serverEveryMinutes: number;
   /** Output token limit for a think (includes reasoning tokens). */
   maxTokens: number;
+  /** Model for the one retry after a transient error (overloaded / timeout); defaults to `model`. */
+  fallbackModel?: string;
 }
 
 export function config(env: Record<string, string | undefined>) {
@@ -84,6 +88,8 @@ export function config(env: Record<string, string | undefined>) {
       priceCached: 0,
       priceOut: num(env.GEM_PRICE_OUT, 0),
       maxPerDay: num(env.GEM_MAX_CALLS_PER_DAY, 470),
+      // Free tier is sometimes "overloaded" (503): retry once on another free Flash-Lite model.
+      fallbackModel: env.GEM_FALLBACK_MODEL ?? 'gemini-2.5-flash-lite',
       serverEveryMinutes: Math.max(1, num(env.GEM_SERVER_EVERY_MIN, 4)),
       maxTokens: 2000,
     },
@@ -183,21 +189,28 @@ export function costOf(cfg: Pick<BrainConfig, 'priceIn' | 'priceCached' | 'price
   );
 }
 
-/** One OpenAI-compatible chat completion (MiniMax). Never throws. */
-export async function chatCompletion(
+type Completion =
+  | { ok: true; content: string; usage: Usage; model: string }
+  | { ok: false; status: number; error: string; retryable: boolean };
+
+/** HTTP statuses worth one retry: provider overloaded or briefly failing. 429 (quota) is not. */
+const TRANSIENT = new Set([500, 502, 503, 504]);
+
+async function completeOnce(
   deps: ThinkDeps,
   cfg: BrainConfig,
+  model: string,
   messages: ChatMessage[],
   maxTokens: number,
-  timeoutMs = 25_000,
-): Promise<{ ok: true; content: string; usage: Usage } | { ok: false; status: number; error: string }> {
+  timeoutMs: number,
+): Promise<Completion> {
   let usage: Usage = { prompt_tokens: 0, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 0 } };
   try {
     const res = await deps.fetch(`${cfg.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: cfg.model,
+        model,
         messages,
         reasoning_effort: cfg.effort,
         // Gemini's OpenAI layer takes max_tokens; MiniMax uses max_completion_tokens (both include reasoning).
@@ -205,21 +218,59 @@ export async function chatCompletion(
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const data = (await res.json().catch(() => ({}))) as {
+    type Body = {
       choices?: { message?: { content?: string } }[];
       usage?: Usage;
-      error?: { message?: string };
+      error?: { message?: string; status?: string };
       base_resp?: { status_code?: number; status_msg?: string };
     };
+    const parsed = (await res.json().catch(() => ({}))) as Body | Body[];
+    // Gemini sometimes wraps errors in an array.
+    const data: Body = Array.isArray(parsed) ? (parsed[0] ?? {}) : parsed;
     if (!res.ok || data.base_resp?.status_code) {
-      const msg = data.error?.message ?? data.base_resp?.status_msg ?? `status ${res.status}`;
-      return { ok: false, status: 502, error: `model error: ${msg}` };
+      const msg = data.error?.message ?? data.base_resp?.status_msg ?? '';
+      return {
+        ok: false,
+        status: 502,
+        error: `model error: ${res.status}${msg ? ` ${msg.slice(0, 120)}` : ''}`,
+        retryable: TRANSIENT.has(res.status),
+      };
     }
     if (data.usage) usage = { ...usage, ...data.usage };
-    return { ok: true, content: data.choices?.[0]?.message?.content ?? '', usage };
+    return { ok: true, content: data.choices?.[0]?.message?.content ?? '', usage, model };
   } catch (err) {
-    return { ok: false, status: 504, error: `model unreachable: ${(err as Error).name}` };
+    return { ok: false, status: 504, error: `model unreachable: ${(err as Error).name}`, retryable: true };
   }
+}
+
+/**
+ * One OpenAI-compatible chat completion. A transient failure (overloaded / 5xx / timeout) that comes back
+ * quickly is retried once after 1.5 s, on the brain's fallback model if it has one. Never throws.
+ */
+export async function chatCompletion(
+  deps: ThinkDeps,
+  cfg: BrainConfig,
+  messages: ChatMessage[],
+  maxTokens: number,
+  timeoutMs = 25_000,
+): Promise<
+  { ok: true; content: string; usage: Usage; model: string } | { ok: false; status: number; error: string }
+> {
+  const now = deps.now ?? Date.now;
+  const started = now();
+  const first = await completeOnce(deps, cfg, cfg.model, messages, maxTokens, timeoutMs);
+  if (first.ok || !first.retryable || now() - started > 12_000) return first;
+  await (deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(1500);
+  const second = await completeOnce(
+    deps,
+    cfg,
+    cfg.fallbackModel ?? cfg.model,
+    messages,
+    maxTokens,
+    timeoutMs,
+  );
+  if (second.ok) return second;
+  return { ok: false, status: second.status, error: `${first.error}; retry: ${second.error}` };
 }
 
 export type ThinkResult =
@@ -363,7 +414,7 @@ export async function runThink(
     await rpc(deps, cfg, 'agent_log_think', {
       p_secret: cfg.dbSecret,
       p_agent: agentId,
-      p_model: brain.model,
+      p_model: reply.model,
       p_input_tokens: usage.prompt_tokens,
       p_output_tokens: usage.completion_tokens,
       p_cost: Number(cost.toFixed(6)),

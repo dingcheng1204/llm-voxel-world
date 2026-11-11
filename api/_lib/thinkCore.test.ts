@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractJson, handleThink, secondsUntilTaipeiMidnight } from './thinkCore';
+import { extractJson, handleThink, secondsUntilTaipeiMidnight, chatCompletion, config } from './thinkCore';
 
 const perception = {
   time: { day: 3, clock: '10:00', phase: 'day' },
@@ -343,5 +343,49 @@ describe('who a line is for', () => {
       })
     ).json();
     expect(r2.raw.to).toBeNull();
+  });
+});
+
+describe('transient model errors', () => {
+  const brainCfg = () => config({ GEMINI_API_KEY_1: 'g' }).brains.gem!;
+  const msgs = [{ role: 'user' as const, content: 'hi' }];
+  function seq(statuses: number[]) {
+    const models: string[] = [];
+    const f = (async (_url: string, init?: RequestInit) => {
+      models.push(JSON.parse(String(init?.body)).model);
+      const status = statuses.shift() ?? 200;
+      if (status !== 200)
+        return new Response(JSON.stringify([{ error: { message: 'The model is overloaded.' } }]), { status });
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+      );
+    }) as unknown as typeof fetch;
+    return { f, models };
+  }
+  const noSleep = async () => {};
+
+  it('retries a 503 once on the fallback model', async () => {
+    const { f, models } = seq([503]);
+    const r = await chatCompletion({ fetch: f, env: {}, sleep: noSleep }, brainCfg(), msgs, 100);
+    expect(r.ok).toBe(true);
+    expect(models).toEqual(['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite']);
+    expect(r.ok && r.model).toBe('gemini-2.5-flash-lite');
+  });
+
+  it('reports the provider message when both attempts fail', async () => {
+    const { f } = seq([503, 503]);
+    const r = await chatCompletion({ fetch: f, env: {}, sleep: noSleep }, brainCfg(), msgs, 100);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain('503 The model is overloaded.');
+  });
+
+  it('does not retry a quota error', async () => {
+    const { f, models } = seq([429]);
+    const r = await chatCompletion({ fetch: f, env: {}, sleep: noSleep }, brainCfg(), msgs, 100);
+    expect(r.ok).toBe(false);
+    expect(models).toHaveLength(1);
   });
 });
