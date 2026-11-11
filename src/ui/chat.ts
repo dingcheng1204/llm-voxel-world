@@ -71,7 +71,7 @@ export class ChatWindow {
       <form class="chat-form" autocomplete="off">
         <label class="sr">說給誰聽</label>
         <select class="chat-to" aria-label="說給誰聽"></select>
-        <input class="chat-input" maxlength="140" placeholder="按 T 開始說話" aria-label="訊息" />
+        <input class="chat-input" maxlength="140" placeholder="${document.body.classList.contains('touch') ? '點這裡說話' : '按 T 開始說話'}" aria-label="訊息" />
         <button type="submit" class="chat-send">送出</button>
       </form>
       <p class="chat-status" role="status"></p>`;

@@ -89,7 +89,8 @@ export class Minimap {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.el.classList.toggle('big', this.big);
     const btn = this.el.querySelector<HTMLButtonElement>('.map-toggle')!;
-    btn.textContent = this.big ? '縮小（M）' : '放大（M）';
+    const key = document.body.classList.contains('touch') ? '' : '（M）';
+    btn.textContent = (this.big ? '縮小' : '放大') + key;
     btn.setAttribute('aria-expanded', String(this.big));
     this.lastDraw = 0;
   }
