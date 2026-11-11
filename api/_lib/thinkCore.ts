@@ -17,6 +17,7 @@ import {
   type MemoryEvent,
 } from '../../src/agents/memory.js';
 import { cleanLearned, formatMind, parseMind } from '../../src/agents/mind.js';
+import { conversationState, mayTalk, type ChatMessage as TalkLine } from '../../src/agents/chatRules.js';
 import type { Perception } from '../../src/agents/perceive.js';
 
 export interface ThinkDeps {
@@ -266,6 +267,8 @@ export async function runThink(
     mind?: unknown;
     /** This character's calls since midnight Pacific (provider day for Gemini's free tier). */
     agent_calls_pt_day?: number;
+    /** Lines this character said or heard in the last few minutes (conversation rules). */
+    chat?: TalkLine[];
   };
   try {
     budget = await rpc(deps, cfg, 'agent_context', {
@@ -300,6 +303,13 @@ export async function runThink(
   const others = Object.values(PERSONAS)
     .filter((p) => p.id !== agentId)
     .map((p) => `${p.id} (${p.species})`);
+  // --- conversation rules: wait for answers, 8 lines / 2 min per conversation, 60 s cooldown ---
+  const conversation = conversationState(agentId, budget.chat ?? [], now(), (partner) => {
+    const b = cfg.brains[partner];
+    return b ? b.serverEveryMinutes * 60_000 + 30_000 : 60_000;
+  });
+  perception = { ...perception, conversation };
+
   const memory = {
     diaries: formatDiaries(budget.diaries ?? []),
     recent: formatRecent(budget.recent ?? [], now()),
@@ -320,6 +330,12 @@ export async function runThink(
     learn?: string | null;
     actions?: unknown[];
   } | null;
+  // Enforce the conversation rules whatever the model wrote: a muted character says nothing.
+  let muted: string | null = null;
+  if (parsed && parsed.say && !mayTalk(conversation)) {
+    muted = String(parsed.say);
+    parsed.say = null;
+  }
   // Something new learned → the character's knowledge notes (deduplicated / rate-limited in the DB).
   const learned = cleanLearned(parsed?.learn);
   let learnedSaved = false;
@@ -343,6 +359,7 @@ export async function runThink(
         thought: parsed?.thought ?? null,
         say: parsed?.say ?? null,
         ...(learnedSaved ? { learn: learned } : {}),
+        ...(muted ? { muted, conversation: conversation.state } : {}),
         actions: parsed?.actions ?? null,
         last_result: perception.last_action_result ?? null,
         pos: perception.self.pos,

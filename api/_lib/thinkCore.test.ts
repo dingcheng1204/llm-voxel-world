@@ -25,6 +25,7 @@ export function fakeFetch(
     recent?: unknown[];
     diaries?: unknown[];
     mind?: unknown;
+    chat?: unknown[];
   } = {},
 ) {
   const calls: { url: string; body: unknown }[] = [];
@@ -39,6 +40,7 @@ export function fakeFetch(
           recent: opts.recent ?? [],
           diaries: opts.diaries ?? [],
           mind: opts.mind ?? null,
+          chat: opts.chat ?? [],
         }),
       );
     }
@@ -276,5 +278,43 @@ describe('mind', () => {
     const { f, calls } = fakeFetch();
     await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), { fetch: f, env });
     expect(calls.some((c) => c.url.endsWith('/rpc/agent_learn'))).toBe(false);
+  });
+});
+
+describe('conversation rules', () => {
+  const asked = (secondsAgo: number) => [
+    {
+      at: new Date(Date.now() - secondsAgo * 1000).toISOString(),
+      speaker: 'clio',
+      text: 'gem，你去哪？',
+      heard_by: ['gem'],
+    },
+  ];
+
+  it('mutes a character that is waiting for an answer, and tells the model why', async () => {
+    const { f, calls } = fakeFetch({ chat: asked(30) });
+    const res = await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), {
+      fetch: f,
+      env,
+    });
+    const data = await res.json();
+    expect(data.raw.say).toBeNull(); // the model said "你好呀" but Clio must wait for Gem
+    const user = (
+      calls.find((c) => c.url.endsWith('/chat/completions'))!.body as { messages: { content: string }[] }
+    ).messages[1]!.content;
+    expect(user).toContain('"waiting_for_reply"');
+    const log = calls.find((c) => c.url.endsWith('/rpc/agent_log_think'))!.body as {
+      p_payload: Record<string, unknown>;
+    };
+    expect(log.p_payload.say).toBeNull();
+    expect(log.p_payload.muted).toBe('你好呀');
+  });
+
+  it('lets a character talk once the wait is over', async () => {
+    const { f } = fakeFetch({ chat: asked(400) });
+    const data = await (
+      await handleThink(post({ agentId: 'clio', clientId: 'tab-12345678', perception }), { fetch: f, env })
+    ).json();
+    expect(data.raw.say).toBe('你好呀');
   });
 });

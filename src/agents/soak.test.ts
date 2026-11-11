@@ -7,13 +7,20 @@ import { SEA_LEVEL } from '../world/coords';
 import { World } from '../world/world';
 import { Agent } from './Agent';
 import { DemoBrain } from './brains/demo';
-import { CAST } from './cast';
+import { CAST, type CastMember } from './cast';
 import { ChatLog, Landmarks } from './worldState';
 
 function seeded(seed: number) {
   let s = seed >>> 0;
   return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
 }
+
+// The game runs 2 characters; the engine is budgeted for up to 4, so the soak test uses 4 bodies.
+const SOAK_CAST: CastMember[] = [
+  ...CAST,
+  { id: 'test3', name: 'T3', species: 'wolf', brain: 'script', tagColor: '#10a37f' },
+  { id: 'test4', name: 'T4', species: 'snake', brain: 'script', tagColor: '#6b7280' },
+];
 
 describe('soak: 4 agents × 10 simulated minutes', () => {
   it('keeps everyone moving, safe and productive', () => {
@@ -40,7 +47,7 @@ describe('soak: 4 agents × 10 simulated minutes', () => {
       },
     };
     const brains: DemoBrain[] = [];
-    CAST.forEach((m, i) => {
+    SOAK_CAST.forEach((m, i) => {
       const s = spawns[i]!;
       const brain = new DemoBrain(
         i % 2 === 0 ? 'gather' : 'explore',

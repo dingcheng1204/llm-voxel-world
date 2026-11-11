@@ -32,6 +32,15 @@ export interface Perception {
   nearby_agents: { id: string; pos: [number, number, number]; dist: number; doing: string }[];
   heard: { from: string; text: string; t: string }[];
   last_action_result: ActionResult | null;
+  /** Conversation rules state (added server-side from the `messages` table; see chatRules.ts). */
+  conversation?: {
+    state: 'none' | 'active' | 'waiting_for_reply' | 'cooldown';
+    with: string | null;
+    exchanges: number;
+    exchanges_left: number;
+    quiet_for_s?: number;
+    last_line?: { from: string; text: string; seconds_ago: number };
+  };
 }
 
 export interface PerceiveContext {

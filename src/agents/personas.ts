@@ -41,23 +41,4 @@ export const PERSONAS: Record<string, Persona> = {
     interests: ['mountains and high points', 'coastlines', 'naming landmarks', 'caves'],
     language: 'Traditional Chinese (zh-TW)',
   },
-  pip: {
-    id: 'pip',
-    displayName: 'Pip',
-    species: 'wolf',
-    personality: 'A friendly tinkerer and builder who learns by making things and proposing small projects.',
-    speechStyle: 'Practical and warm, suggests plans and experiments.',
-    interests: ['building', 'collecting wood and stone', 'group projects'],
-    language: 'Traditional Chinese (zh-TW)',
-  },
-  rook: {
-    id: 'rook',
-    displayName: 'Rook',
-    species: 'snake',
-    personality:
-      'A playful contrarian experimenter who tests the rules of the world (kindly) to see what happens.',
-    speechStyle: 'Witty, curious, a little teasing but always kind.',
-    interests: ['strange blocks', 'lava and fire', 'testing limits'],
-    language: 'Traditional Chinese (zh-TW)',
-  },
 };
