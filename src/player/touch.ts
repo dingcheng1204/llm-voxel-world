@@ -30,7 +30,8 @@ export function wantsTouch(search = location.search): boolean {
   const q = new URLSearchParams(search).get('touch');
   if (q === '1') return true;
   if (q === '0') return false;
-  return matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0;
+  // The main pointer is a finger (phones, tablets). Touch laptops report a fine pointer and keep the mouse.
+  return matchMedia('(pointer: coarse)').matches;
 }
 
 export interface TouchCallbacks {
