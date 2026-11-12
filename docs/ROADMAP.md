@@ -3,6 +3,7 @@
 每個階段完成條件：`npm run build` 通過、部署到 Vercel 預覽、用 Chrome DevTools MCP 截圖確認、勾選本檔。
 
 ## 階段 0 — 專案骨架
+
 - [x] Vite + TypeScript strict + `three`
 - [x] ESLint + Prettier + `tsc --noEmit` + Vitest；GitHub Actions 跑 typecheck/lint/test/build
 - [x] `src/engine/renderer.ts`：場景、相機、fog、resize、context lost 處理
@@ -13,6 +14,7 @@
 - [x] 連上 Vercel，push 到 main 自動部署正式版、PR 自動產生預覽網址
 
 ## 階段 1 — 方塊世界 MVP
+
 - [x] `world/coords.ts`、`world/blocks.ts`（照 voxel-engine skill）
 - [x] `world/chunk.ts`：Uint8Array 存取、單元測試涵蓋負座標
 - [x] `world/terrain.ts`：seed + simplex noise，草/土/石/基岩/沙/水/樹
@@ -26,6 +28,7 @@
 - [ ] ✅ 驗收：走 2 分鐘、挖放 50 次，FPS ≥ 60，不會卡進方塊（功能已自動測試；FPS 待實機確認）
 
 ## 階段 2 — 世界打磨
+
 - [x] 編輯存 localStorage，重新整理後還在
 - [x] Supabase：建立專案表（BLUEPRINT §5 的 SQL 做成 migration，RLS 全開、只開放公開讀取）
 - [x] 編輯同步到 `world_edits`（經由 Edge Function `world-edits`；每 2 秒上傳、每 10 秒拉別人的修改；離線會排隊）
@@ -37,6 +40,7 @@
 - [ ] ✅ 驗收：整座島 ≥ 60 FPS；draw calls < 400；三角形 < 500k
 
 ## 階段 3 — 角色身體（還沒接 LLM）
+
 - [x] `agents/AgentBody.ts`：共用身體；4 種可愛動物模型（貓/狐狸/狼/蛇）+ 名牌
 - [x] 暫代大腦 `WanderBrain`（在廣場閒晃），之後換成 LLM
 - [x] 改用和玩家相同的 AABB 物理（`AgentBody` + `stepBody`；所有物種同一個身體 0.7×0.95）
@@ -49,6 +53,7 @@
 - [x] ✅ 驗收：4 個腳本角色在真實島嶼上無頭模擬 10 分鐘（`soak.test.ts`）：不卡住、不掉海、不卡進方塊，採集者各完成 30+ 輪
 
 ## 階段 4 — 第一個大腦（Clio，MiniMax M3.1 Flash）
+
 - [x] `api/agent/think.ts`：MiniMax OpenAI 相容 API（M Plan 訂閱 key，`MINIMAX_API_KEY_1`）；回覆用 zod 驗證、錯誤重試一次（原訂 AI Gateway，改直連以控制成本）
 - [x] 伺服器端成本保護：每日 US$ 上限（台北日）、全站每分鐘次數上限、只允許名單內角色、缺 secret 就拒絕（fail closed）
 - [x] `src/agents/prompt.ts`：照 agent-persona 的 system prompt 範本
@@ -64,7 +69,9 @@
 - [ ] ✅ 驗收：Clio 自己探索 15 分鐘，說話合理，花費在預算內（伺服器 tick 已實測；待連續觀察）
 
 ## 階段 5 — 兩個角色 + 聊天 + 日記 ✅
+
 （原本規劃 3 個角色；改為每個實際接上的大腦一個角色：Clio = MiniMax、Gem = Gemini。Pip、Rook 已移除。）
+
 - [x] Gem 接 Gemini 3.1 Flash-Lite（免費方案、不綁卡；每天 470 次上限，太平洋時間午夜重置）；每個角色可設自己的供應商、模型、思考頻率
 - [x] 伺服器 tick 一次模擬所有 LLM 角色、共用同一個世界（看得到彼此、聽得到對方說的話）
 - [x] 聽覺範圍 16 格、`heard` 進 Perception（伺服器從 `messages` 載入最近 10 分鐘）
@@ -80,6 +87,7 @@
 - [x] ✅ 驗收：兩人都有日記，內容只寫真的發生的事（2026-11-11 手動執行並對照事件紀錄驗證；完整一天的自動執行從今晚 23:30 開始）
 
 ## 階段 6 — 擴充
+
 - [x] 聊天視窗（T 鍵）：`A → B`（私訊）或 `A → 所有人`；線上名單、選對象、可收合、可捲動、只保留最新 150 則；玩家的話寫進 `messages`（`/api/chat/say` 驗證＋限流），角色聽得到、會回應（私訊從任何地方都聽得到、會讓角色馬上想一下）
 - [x] 玩家角色：上線時取名字、選蛇／老虎／猴子；Supabase Realtime 同步線上名單與位置，其他人看得到你的動物、名牌和對話泡泡；角色的感知裡看得到玩家
 - [x] 模型暫時錯誤（503 過載、5xx、很快的逾時）自動重試一次；Gem 改用 Gemini 2.5 Flash-Lite 重試
@@ -94,7 +102,24 @@
 - [ ] 成本面板（今日每個角色花費）
 - [ ] Playwright 回歸測試：載入、走路、挖放、角色生成
 
+## 階段 6.5 — 帳號、存檔、第三人稱、戰鬥
+
+- [x] 有數量的背包（9 格＝快捷列，每格最多 64）：挖到放進背包、放下會減少；新玩家與死亡後拿到初始物資
+- [x] 帳號：Supabase Auth（Email + 密碼，不寄信）；`player_saves` 表一人一格（RLS 只能讀寫自己的）
+- [x] 存檔：名字、動物、位置、面向、血量、背包；K 鍵／💾 手動存、每分鐘自動存、離開分頁時存；訪客存在瀏覽器
+- [x] 登入後讀回上一次的地點和物資（換電腦也行）
+- [x] 第三人稱（預設，V 切換）：肩後視角、鏡頭不穿牆、看得到自己的動物
+- [x] 血量 20、體力 100、摔傷、岩漿／火、慢慢回血；受傷畫面閃紅
+- [x] 一般模式 ⇄ 戰鬥模式（R）：戰鬥時左鍵攻擊、按住右鍵防禦（盾牌，擋前方 75%）、Q 閃避（無敵 0.3 秒）；戰鬥時不能飛
+- [x] 夜晚史萊姆：廣場外生成、會跳上 1 格台階、追咬玩家；天亮融化；打倒掉一個玩具方塊；廣場是安全區
+- [x] PvP：雙方都在戰鬥模式才打得到；被打的人在自己瀏覽器驗證（距離、頻率、傷害上限）；頭上血條、揮擊／防禦動畫、打倒公告
+- [x] 死亡：回廣場重生、物資回到初始（死掉當下就存檔，重新整理也拿不回來）
+- [x] 手機：⚔️ 模式鍵、👁 視角鍵；戰鬥時按鈕變攻擊／防禦／閃避
+- [ ] 怪物同步給所有玩家（目前每人各自打自己的史萊姆）
+- [ ] PvP 改成伺服器判定（目前信任被打的那一方）
+
 ## 階段 7 — 合作寫程式
+
 - [ ] 工作台方塊 + `propose_code` / `review_code` 動作
 - [ ] Vercel Sandbox 執行角色寫的程式（逾時、無網路）
 - [ ] 第一個任務：`build(blueprint) → edits[]` 蓋房子
