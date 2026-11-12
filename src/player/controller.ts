@@ -6,6 +6,8 @@ import { SEA_LEVEL } from '../world/coords';
 import { raycastVoxel, type VoxelHit } from '../world/raycast';
 import type { World } from '../world/world';
 import { COMBAT, fallDamage, pickTarget, Vitals, type DamageResult, type Mode } from './combat';
+import type { Bolts } from './bolts';
+import { BASE_STATS, Equipment, type WeaponKind } from './equipment';
 import { Hotbar } from './hotbar';
 import { Input } from './input';
 import { dropOf, labelOf } from './inventory';
@@ -33,8 +35,8 @@ export interface Hittable {
   x: number;
   y: number;
   z: number;
-  /** Apply a hit from the player standing at (fromX, fromZ). */
-  hit(damage: number, fromX: number, fromZ: number): void;
+  /** Apply a hit (raw attack, before the target's defense) from the player standing at (fromX, fromZ). */
+  hit(damage: number, fromX: number, fromZ: number, kind: WeaponKind): void;
 }
 
 export type CameraView = 'first' | 'third';
@@ -69,6 +71,9 @@ export class PlayerController {
   onHurt: (r: DamageResult) => void = () => {};
   /** Called when a block is mined or placed (unsaved changes). */
   onInventoryUse: () => void = () => {};
+  /** Called when I fire a magic bolt (other players draw it). */
+  onCast: (origin: THREE.Vector3, dir: THREE.Vector3, range: number) => void = () => {};
+  readonly equipment = new Equipment();
 
   private repeatTimer = 0;
   private attackTimer = 0;
@@ -100,6 +105,7 @@ export class PlayerController {
     spawn: { x: number; z: number },
     private readonly occupants: () => Occupant[] = () => [],
     private readonly targets: () => Hittable[] = () => [],
+    private readonly bolts: Bolts | null = null,
   ) {
     const y = world.groundY(spawn.x, spawn.z);
     this.spawn = new THREE.Vector3(spawn.x, y + 0.1, spawn.z);
@@ -166,7 +172,7 @@ export class PlayerController {
     this.vitals.guarding = false;
     if (mode === 'combat') this.flying = false;
     this.hotbar.flash(
-      mode === 'combat' ? '⚔️ 戰鬥模式：左鍵攻擊、右鍵防禦、Q 閃避' : '🔨 一般模式：挖和放方塊',
+      mode === 'combat' ? '⚔️ 戰鬥模式：左鍵攻擊、右鍵閃避、按住 E 防禦' : '🔨 一般模式：挖和放方塊',
     );
     this.onModeChange();
   }
@@ -229,7 +235,7 @@ export class PlayerController {
       else this.flying = !this.flying;
     }
     const combat = this.mode === 'combat';
-    this.vitals.guarding = combat && this.input.buttons.has(2) && this.vitals.stamina > 0;
+    this.vitals.guarding = combat && k.has('KeyE') && this.vitals.stamina > 0;
 
     // Wanted horizontal direction from WASD relative to where we look.
     // Keys give full speed; the touch joystick adds an analog amount (a light push walks slowly).
@@ -246,8 +252,8 @@ export class PlayerController {
       wz /= wl;
     }
 
-    // Dodge (combat mode, Q): a short dash where you're steering (backwards if standing still).
-    if (combat && presses.includes('KeyQ') && this.dodgeCooldown <= 0 && !this.vitals.guarding) {
+    // Dodge (combat mode, right click): a short dash where you're steering (backwards if standing still).
+    if (combat && presses.includes('Mouse2') && this.dodgeCooldown <= 0 && !this.vitals.guarding) {
       if (this.vitals.spend(COMBAT.dodgeStamina)) {
         const l = Math.hypot(wx, wz);
         this.dodgeDir.x = l > 0.1 ? wx / l : Math.sin(this.yaw);
@@ -263,7 +269,9 @@ export class PlayerController {
     this.inWater = this.isInWater();
     // Joystick pushed all the way = sprint.
     const sprint = k.has('ShiftLeft') || k.has('ShiftRight') || Math.hypot(m.fwd, m.side) > 0.97;
-    let speed = this.flying ? FLY_SPEED : sprint && !this.vitals.guarding ? PLAYER.sprint : PLAYER.walk;
+    // Speed comes from the character + shoes (sprint is 30 % faster).
+    const walk = this.equipment.stats.speed;
+    let speed = this.flying ? FLY_SPEED : sprint && !this.vitals.guarding ? walk * 1.3 : walk;
     if (this.vitals.guarding) speed *= COMBAT.guardSlow;
     if (this.inWater && !this.flying) speed *= 0.55;
     const accel = b.onGround || this.flying || this.inWater ? 1 - Math.exp(-18 * dt) : 1 - Math.exp(-5 * dt);
@@ -292,7 +300,7 @@ export class PlayerController {
     stepBody(b, dt, (x, y, z) => this.world.isSolid(x, y, z));
     this.environment(dt);
     if (b.y < -5) {
-      this.hurt(COMBAT.maxHp, { from: null, environment: true }, '掉出世界');
+      this.hurt(999, { from: null, environment: true }, '掉出世界');
       if (!this.dead) this.respawn();
     }
 
@@ -329,19 +337,19 @@ export class PlayerController {
     // Standing in lava or fire burns (checked a few times a second).
     this.hazardTimer -= dt;
     if (this.hazardTimer > 0) return;
-    this.hazardTimer = 0.25;
+    this.hazardTimer = 0.5;
     const ids = [
       this.world.getBlock(Math.floor(b.x), Math.floor(b.y + 0.1), Math.floor(b.z)),
       this.world.getBlock(Math.floor(b.x), Math.floor(b.y + 1), Math.floor(b.z)),
     ];
-    if (ids.includes(B.lava)) this.hurt(COMBAT.lavaDps / 4, { from: null, environment: true }, '掉進岩漿');
-    else if (ids.includes(B.fire)) this.hurt(COMBAT.fireDps / 4, { from: null, environment: true }, '被火燒');
+    if (ids.includes(B.lava)) this.hurt(COMBAT.lavaDps / 2, { from: null, environment: true }, '掉進岩漿');
+    else if (ids.includes(B.fire)) this.hurt(COMBAT.fireDps / 2, { from: null, environment: true }, '被火燒');
   }
 
   /** Damage from anything (monster, player, environment). `cause` is shown on the death screen. */
   hurt(amount: number, src: { from: { x: number; z: number } | null; environment?: boolean }, cause: string) {
     const b = this.body;
-    const r = this.vitals.damage(amount, src, b, this.yaw);
+    const r = this.vitals.damage(amount, src, b, this.yaw, this.equipment.stats.defense);
     if (r.dealt > 0 && src.from) {
       const dx = b.x - src.from.x;
       const dz = b.z - src.from.z;
@@ -366,15 +374,45 @@ export class PlayerController {
     return this.lastCause;
   }
 
+  /** Swing the melee weapon, or fire a bolt from a magic one (no weapon = fists). */
   private attack(): void {
     if (this.attackTimer > 0) return;
-    this.attackTimer = COMBAT.attackCooldown;
+    const def = this.equipment.weaponDef;
+    const w = def?.weapon ?? { kind: 'melee' as const, range: 2.2, cooldown: 0.5, stamina: 0 };
+    const attack = def ? this.equipment.stats.attack : BASE_STATS.attack;
+    if (w.stamina > 0 && !this.vitals.spend(w.stamina)) {
+      this.attackTimer = 0.2;
+      this.hotbar.flash('體力不夠');
+      return;
+    }
+    this.attackTimer = w.cooldown;
     this.swings++;
     this.swingAnim = 0.25;
     const b = this.body;
-    const t = pickTarget(b, this.yaw, this.targets());
+    if (w.kind === 'magic') {
+      // From the chest towards whatever the crosshair points at.
+      const origin = new THREE.Vector3(b.x, b.y + 1.0, b.z);
+      const dir = new THREE.Vector3();
+      this.camera.getWorldDirection(dir);
+      const hit = raycastVoxel(
+        (x, y, z) => this.world.getBlock(x, y, z),
+        (id) => BLOCKS[id]?.solid ?? false,
+        this.camera.position,
+        dir,
+        30,
+      );
+      const aim = this.camera.position.clone().addScaledVector(dir, hit ? hit.distance : 30);
+      const to = aim.sub(origin);
+      if (to.lengthSq() < 0.01) to.copy(dir);
+      to.normalize();
+      origin.addScaledVector(to, 0.5);
+      this.bolts?.fire(origin, to, w.range, attack, true);
+      this.onCast(origin, to, w.range);
+      return;
+    }
+    const t = pickTarget(b, this.yaw, this.targets(), w.range);
     if (!t) return;
-    t.hit(COMBAT.attackDamage, b.x, b.z);
+    t.hit(attack, b.x, b.z, 'melee');
     this.onHitLanded(t);
   }
 

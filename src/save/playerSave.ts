@@ -3,7 +3,14 @@
 // Everything read back is untrusted and validated here.
 
 import { PLAYER_SPECIES, type PlayerSpecies } from '../agents/species';
-import { COMBAT } from '../player/combat';
+import {
+  Equipment,
+  MAX_HEARTS,
+  MAX_STAMINA_CAP,
+  START_HEARTS,
+  START_STAMINA,
+  type GearState,
+} from '../player/equipment';
 import { Inventory, type Slots } from '../player/inventory';
 
 export interface PlayerSaveData {
@@ -15,7 +22,12 @@ export interface PlayerSaveData {
   pos: [number, number, number];
   yaw: number;
   hp: number;
+  /** Raised only by special items / events; kept after death. */
+  maxHp: number;
+  maxStamina: number;
   inventory: Slots;
+  /** Equipped weapon / armor / shoes and the gear bag. */
+  gear: GearState | null;
   /** Epoch ms. */
   savedAt: number;
 }
@@ -48,7 +60,13 @@ export function parseSave(raw: unknown): PlayerSaveData | null {
   )
     return null;
   const inventory = Inventory.parse(r.inventory) ?? [];
-  const hp = num(r.hp) ? Math.max(1, Math.min(COMBAT.maxHp, Math.round(r.hp))) : COMBAT.maxHp;
+  const maxHp = num(r.maxHp)
+    ? Math.max(START_HEARTS * 2, Math.min(MAX_HEARTS * 2, Math.round(r.maxHp)))
+    : START_HEARTS * 2;
+  const maxStamina = num(r.maxStamina)
+    ? Math.max(START_STAMINA, Math.min(MAX_STAMINA_CAP, Math.round(r.maxStamina)))
+    : START_STAMINA;
+  const hp = num(r.hp) ? Math.max(1, Math.min(maxHp, Math.round(r.hp))) : maxHp;
   return {
     v: 1,
     playerId: r.playerId,
@@ -57,7 +75,10 @@ export function parseSave(raw: unknown): PlayerSaveData | null {
     pos: [x, y, z],
     yaw: num(r.yaw) ? r.yaw : 0,
     hp,
+    maxHp,
+    maxStamina,
     inventory,
+    gear: Equipment.parse(r.gear),
     savedAt: num(r.savedAt) ? r.savedAt : 0,
   };
 }

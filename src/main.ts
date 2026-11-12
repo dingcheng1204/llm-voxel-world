@@ -19,7 +19,9 @@ import { TouchControls, wantsTouch } from './player/touch';
 import { Input } from './player/input';
 import { PlayerController, type Hittable } from './player/controller';
 import { Inventory, STARTER_KIT } from './player/inventory';
-import { COMBAT } from './player/combat';
+import { Bolts } from './player/bolts';
+import { GEAR, STARTER_GEAR } from './player/equipment';
+import { GearPanel } from './ui/gearPanel';
 import { Slimes, SLIME } from './monsters/slimes';
 import { Hud } from './ui/hud';
 import { Account } from './save/account';
@@ -213,6 +215,9 @@ const hotbar = new Hotbar(hotbarEl, inventory);
 // Night slimes (local to this player; the plaza is a safe zone).
 const slimes = new Slimes(world, plaza);
 ctx.scene.add(slimes.group);
+// Magic bolts (mine can hit; other players' are drawn only).
+const bolts = new Bolts();
+ctx.scene.add(bolts.group);
 /** Other players I can hit: only those in combat mode (and only while I am too — see pvp.ts). */
 const pvpTargets = (): Hittable[] =>
   (remote?.list() ?? [])
@@ -222,7 +227,7 @@ const pvpTargets = (): Hittable[] =>
       x: r.pos.x,
       y: r.pos.y,
       z: r.pos.z,
-      hit: (dmg: number) => island?.sendHit(r.id, dmg),
+      hit: (dmg: number, _x: number, _z: number, kind: 'melee' | 'magic') => island?.sendHit(r.id, dmg, kind),
     }));
 const player = demo
   ? null
@@ -234,6 +239,7 @@ const player = demo
       { x: plaza.x + 0.5, z: plaza.z + 5.5 },
       () => agents.map((a) => ({ pos: a.body.pos })),
       () => [...slimes.targets(), ...pvpTargets()],
+      bolts,
     );
 player?.setSpecies(me.species);
 const hud = new Hud(document.body);
@@ -259,8 +265,11 @@ const saves = new SaveManager(cfg.seed, account, (): PlayerSaveData | null => {
     species: me.species,
     pos: dead ? [sp.x, sp.y, sp.z] : [b.x, b.y, b.z],
     yaw: player.yaw,
-    hp: dead ? COMBAT.maxHp : Math.max(1, Math.round(player.vitals.hp)),
+    hp: dead ? player.vitals.maxHp : Math.max(1, Math.round(player.vitals.hp)),
+    maxHp: player.vitals.maxHp,
+    maxStamina: player.vitals.maxStamina,
     inventory: dead ? STARTER_KIT.map((s) => ({ ...s })) : inventory.toJSON(),
+    gear: dead ? { ...STARTER_GEAR, bag: [] } : player.equipment.toJSON(),
     savedAt: Date.now(),
   };
 });
@@ -355,6 +364,10 @@ if (player) {
     player.setSpecies(me.species);
     player.teleport(data.pos[0], data.pos[1], data.pos[2], data.yaw);
     inventory.set(data.inventory);
+    if (data.gear) player.equipment.set(data.gear);
+    else player.equipment.reset();
+    player.vitals.maxHp = data.maxHp;
+    player.vitals.maxStamina = data.maxStamina;
     player.vitals.reset(data.hp);
     if (joined) {
       island?.setIdentity(me);
@@ -514,6 +527,8 @@ if (player) {
   hud.onRespawn = () => {
     player.respawn();
     inventory.reset();
+    player.equipment.reset();
+    bolts.clear();
     player.vitals.reset();
     slimes.clear();
     deadScreen = false;
@@ -523,11 +538,60 @@ if (player) {
   // Slimes bite; defeating one drops a toy block.
   const toys = [B.toy_red, B.toy_orange, B.toy_yellow, B.toy_blue];
   slimes.onBite = (s) => player.hurt(SLIME.damage, { from: { x: s.x, z: s.z } }, '被史萊姆咬了');
+  // Gear a slime may drop (chance per kill) — the only way to find new equipment for now.
+  const DROPS: [string, number][] = [
+    ['magic_twig', 0.08],
+    ['wood_sword', 0.05],
+    ['leather_boots', 0.03],
+    ['stone_shield', 0.02],
+    ['crystal_wand', 0.01],
+    ['stone_sword', 0.01],
+  ];
   slimes.onKill = () => {
+    let roll = Math.random();
+    for (const [id, p] of DROPS) {
+      if (roll < p) {
+        const g = GEAR[id]!;
+        if (player.equipment.give(id))
+          hud.toast(`✨ 史萊姆掉了 ${g.icon} ${g.name}！按 I 打開裝備換上`, 5000);
+        else hud.toast(`✨ 史萊姆掉了 ${g.icon} ${g.name}，但裝備袋滿了`);
+        return;
+      }
+      roll -= p;
+    }
     const toy = toys[Math.floor(Math.random() * toys.length)]!;
     if (inventory.add(toy, 1)) hotbar.flash('打倒史萊姆！撿到一個玩具方塊');
     else hotbar.flash('打倒史萊姆！（背包滿了）');
   };
+  player.onCast = (o, d, range) => island?.sendShot([o.x, o.y, o.z], [d.x, d.y, d.z], range);
+
+  // ---- Equipment panel (I / 🎒) ----
+  let gearOpen = false;
+  const gearPanel = new GearPanel(document.body, player.equipment, () => ({
+    maxHp: player.vitals.maxHp,
+    maxStamina: player.vitals.maxStamina,
+  }));
+  const openGear = () => {
+    if (gearOpen || deadScreen) return;
+    gearOpen = true;
+    gearPanel.show();
+    input.release();
+  };
+  const closeGear = () => {
+    if (!gearOpen) return;
+    gearOpen = false;
+    gearPanel.hide();
+    input.requestLock();
+  };
+  gearPanel.onClose = closeGear;
+  hud.onStatsClick = openGear;
+  window.addEventListener('keydown', (e) => {
+    if (gearOpen && (e.code === 'Escape' || e.code === 'KeyI')) {
+      e.preventDefault();
+      closeGear();
+    }
+  });
+  Object.assign(window, { __gear: { open: openGear, close: closeGear, panel: gearPanel } });
   syncMode();
 
   // Phones / tablets: on-screen joystick, look by dragging, buttons (no pointer lock).
@@ -537,15 +601,16 @@ if (player) {
         onChat: () => chatWindow?.open(),
         onMode: () => player.setMode(player.mode === 'build' ? 'combat' : 'build'),
         onView: () => player.setView(player.view === 'first' ? 'third' : 'first'),
+        onGear: () => openGear(),
       })
     : null;
   syncMode();
   input.onLockChange = (locked) => {
-    playOverlay.hidden = locked || typing || deadScreen;
+    playOverlay.hidden = locked || typing || deadScreen || gearOpen;
     crosshair.hidden = !locked;
     touch?.setVisible(locked && !typing);
-    hud.setVisible(joined && (locked || deadScreen));
-    if (!locked && joined && !deadScreen) void saves.save('auto');
+    hud.setVisible(joined && (locked || deadScreen || gearOpen));
+    if (!locked && joined && !deadScreen && !gearOpen) void saves.save('auto');
   };
   // T or Enter while playing opens the chat box; K saves; M toggles the map.
   window.addEventListener('keydown', (e) => {
@@ -556,6 +621,11 @@ if (player) {
     }
     if (e.code === 'KeyK' && !e.repeat) {
       void saves.save('manual');
+      return;
+    }
+    if (e.code === 'KeyI' && !e.repeat) {
+      e.preventDefault();
+      openGear();
       return;
     }
     if (!chatWindow) return;
@@ -651,6 +721,7 @@ function startIsland(): void {
       myPos: player.bodyPos,
       attacker,
       dmg: e.dmg,
+      kind: e.kind,
       lastHitAt: lastHitFrom.get(e.from),
       now,
     });
@@ -663,6 +734,11 @@ function startIsland(): void {
     const name = (id: string) => (id === me.id ? '你' : (island?.players.get(id)?.name ?? '某人'));
     if (victim === me.id) return; // the death screen already says it
     hud.toast(by === me.id ? `⚔️ 你打倒了 ${name(victim)}！` : `⚔️ ${name(by)} 打倒了 ${name(victim)}`);
+  };
+  island.onShot = (e) => {
+    const o = new THREE.Vector3(...e.origin);
+    if (player && o.distanceTo(player.bodyPos) > 60) return;
+    bolts.fire(o, new THREE.Vector3(...e.dir), e.range, 0, false);
   };
   island.start();
   island
@@ -733,6 +809,7 @@ const loop = new GameLoop(
         const b = player.bodyPos;
         slimes.tick(dt, dayNight.night, { x: b.x, y: b.y, z: b.z, alive: !player.dead });
       }
+      bolts.tick(dt, world, () => [...slimes.targets(), ...pvpTargets()]);
       simTime += dt;
       lastUpdateAt = performance.now();
       if (!lineup) for (const a of agents) a.tick(dt, simTime);
@@ -742,7 +819,10 @@ const loop = new GameLoop(
       if (player) {
         player.render(alpha, time, frameDt);
         slimes.render(alpha, time);
-        hud.setVitals(player.vitals.hp, player.vitals.stamina, player.guarding);
+        bolts.render(time);
+        const v = player.vitals;
+        hud.setVitals(v.hp, v.maxHp, v.stamina, v.maxStamina, player.guarding);
+        hud.setStats(player.equipment.weaponDef, player.equipment.stats, !!touch);
       } else {
         cam.position.lerpVectors(prev, next, alpha);
         cam.lookAt(target);
@@ -828,6 +908,7 @@ Object.assign(window, {
     hotbar,
     inventory,
     slimes,
+    bolts,
     saves,
     account,
     hud,

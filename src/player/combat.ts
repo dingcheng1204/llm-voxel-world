@@ -2,23 +2,25 @@
 //
 // Two modes:
 //   build  (一般模式): LMB mine, RMB place, F fly — the original controls.
-//   combat (戰鬥模式): LMB attack, RMB (hold) guard, Q dodge. No flying. Other players can only hit
-//                      you while BOTH of you are in combat mode, so builders are never griefed.
-// Monsters at night hurt you in either mode.
+//   combat (戰鬥模式): LMB attack (melee swing or magic bolt, depending on the weapon), RMB dodge,
+//                      hold E to guard. No flying. Other players can only hit you while BOTH of you
+//                      are in combat mode, so builders are never griefed.
+// Monsters at night hurt you in either mode. Attack / defense / speed come from equipment.ts;
+// max hp (hearts × 2) and max stamina are per player.
+
+import { START_HEARTS, START_STAMINA } from './equipment';
 
 export type Mode = 'build' | 'combat';
 
 export const COMBAT = {
-  maxHp: 20,
-  maxStamina: 100,
-  /** Melee: damage, reach from body centre (blocks), half-angle of the hit cone (radians), cooldown (s). */
-  attackDamage: 4,
-  attackReach: 3,
+  /** Half-angle of the melee hit cone (radians). */
   attackCone: 0.75,
-  attackCooldown: 0.45,
+  /** Magic bolt speed (m/s) and hit radius around a target. */
+  boltSpeed: 18,
+  boltRadius: 0.7,
   /** Guarding a hit from the front: damage kept, stamina cost per blocked hit, front half-angle. */
   guardKeep: 0.25,
-  guardStaminaPerHit: 18,
+  guardStaminaPerHit: 15,
   guardFront: 1.2,
   /** Walking speed multiplier while guarding. */
   guardSlow: 0.45,
@@ -26,7 +28,7 @@ export const COMBAT = {
   dodgeSpeed: 13,
   dodgeTime: 0.18,
   dodgeInvuln: 0.32,
-  dodgeStamina: 30,
+  dodgeStamina: 25,
   dodgeCooldown: 0.6,
   /** After taking a hit: no further damage for this long. */
   hurtInvuln: 0.5,
@@ -77,12 +79,17 @@ export function angleTo(yaw: number, dx: number, dz: number): number {
   return Math.acos(Math.max(-1, Math.min(1, dot)));
 }
 
+/** Damage after defense: at least 1 (a guard can bring it down further, to 0). */
+export function afterDefense(raw: number, defense: number): number {
+  return Math.max(1, Math.round(raw - defense));
+}
+
 /** Pick the target a swing hits: closest one inside reach and the facing cone (or null). */
 export function pickTarget<T extends { x: number; y: number; z: number }>(
   me: { x: number; y: number; z: number },
   yaw: number,
   targets: readonly T[],
-  reach: number = COMBAT.attackReach,
+  reach: number,
   cone: number = COMBAT.attackCone,
 ): T | null {
   let best: T | null = null;
@@ -104,8 +111,11 @@ export function pickTarget<T extends { x: number; y: number; z: number }>(
 
 /** Hit points + stamina + the timers that gate them. Advance with `tick(dt)`. */
 export class Vitals {
-  hp: number = COMBAT.maxHp;
-  stamina: number = COMBAT.maxStamina;
+  /** Upper limits — only raised by special items / events (hearts × 2). */
+  maxHp: number = START_HEARTS * 2;
+  maxStamina: number = START_STAMINA;
+  hp: number = this.maxHp;
+  stamina: number = this.maxStamina;
   /** Seconds left of each window. */
   invuln = 0;
   dodgeInvuln = 0;
@@ -121,9 +131,9 @@ export class Vitals {
   }
 
   /** Full health and stamina (spawn / respawn), with spawn protection. */
-  reset(hp: number = COMBAT.maxHp): void {
-    this.hp = Math.max(1, Math.min(COMBAT.maxHp, Math.round(hp)));
-    this.stamina = COMBAT.maxStamina;
+  reset(hp: number = this.maxHp): void {
+    this.hp = Math.max(1, Math.min(this.maxHp, Math.round(hp)));
+    this.stamina = this.maxStamina;
     this.invuln = COMBAT.spawnInvuln;
     this.dodgeInvuln = 0;
     this.sinceDamage = 99;
@@ -147,9 +157,9 @@ export class Vitals {
     this.sinceDamage += dt;
     const before = this.stamina;
     if (!this.guarding && this.staminaPause === 0)
-      this.stamina = Math.min(COMBAT.maxStamina, this.stamina + COMBAT.staminaRegen * dt);
+      this.stamina = Math.min(this.maxStamina, this.stamina + COMBAT.staminaRegen * dt);
     let changed = this.stamina !== before;
-    if (this.sinceDamage > COMBAT.regenDelay && this.hp < COMBAT.maxHp) {
+    if (this.sinceDamage > COMBAT.regenDelay && this.hp < this.maxHp) {
       this.regenTimer += dt;
       if (this.regenTimer >= COMBAT.regenEvery) {
         this.regenTimer = 0;
@@ -163,21 +173,28 @@ export class Vitals {
   }
 
   /**
-   * Take `amount` damage. `yaw` is where I'm facing (guarding only blocks hits from the front).
+   * Take `amount` raw damage. Attacks are reduced by `defense` (environment damage is not).
+   * `yaw` is where I'm facing (guarding only blocks hits from the front).
    * Returns what happened; nothing happens while dead or invulnerable.
    */
-  damage(amount: number, src: DamageSource, me: { x: number; z: number }, yaw: number): DamageResult {
+  damage(
+    amount: number,
+    src: DamageSource,
+    me: { x: number; z: number },
+    yaw: number,
+    defense = 0,
+  ): DamageResult {
     const none = { dealt: 0, blocked: false, dodged: false, died: false };
     if (this.dead || amount <= 0) return none;
     if (this.dodgeInvuln > 0) return { ...none, dodged: true };
     if (this.invuln > 0 && (!src.environment || this.invuln > COMBAT.hurtInvuln)) return none;
-    let dealt = amount;
+    let dealt = src.environment ? Math.round(amount) || 1 : afterDefense(amount, defense);
     let blocked = false;
     if (this.guarding && src.from && !src.environment) {
       const front = angleTo(yaw, src.from.x - me.x, src.from.z - me.z) < COMBAT.guardFront;
       if (front && this.spend(COMBAT.guardStaminaPerHit)) {
         blocked = true;
-        dealt = Math.max(amount > 0 ? 1 : 0, Math.round(amount * COMBAT.guardKeep));
+        dealt = Math.round(dealt * COMBAT.guardKeep);
       } else if (front) {
         this.guarding = false; // out of stamina: the guard breaks
       }

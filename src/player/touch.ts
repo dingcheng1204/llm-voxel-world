@@ -48,6 +48,7 @@ export interface TouchCallbacks {
   onChat(): void;
   onMode(): void;
   onView(): void;
+  onGear(): void;
 }
 
 export class TouchControls {
@@ -76,6 +77,7 @@ export class TouchControls {
         <button type="button" data-act="pause" aria-label="暫停">❚❚</button>
         <button type="button" data-act="chat" aria-label="聊天">💬</button>
         <button type="button" data-act="view" aria-label="切換視角">👁</button>
+        <button type="button" data-act="gear" aria-label="裝備">🎒</button>
         <button type="button" data-act="mode" class="mode" aria-label="切換戰鬥模式">⚔️</button>
       </div>
       <div class="touch-btns">
@@ -98,11 +100,7 @@ export class TouchControls {
       const press = (down: boolean) => {
         const code = b.dataset.hold!;
         b.classList.toggle('on', down);
-        if (code === 'fly' || code === 'KeyQ') {
-          if (code === 'KeyQ') {
-            this.input.hold('KeyQ', down);
-            return;
-          }
+        if (code === 'fly') {
           this.input.hold('KeyF', down);
         } else if (code.startsWith('Mouse')) {
           this.input.holdButton(Number(code.slice(5)), down);
@@ -124,6 +122,7 @@ export class TouchControls {
     this.el.querySelector('[data-act=chat]')!.addEventListener('click', () => this.cb.onChat());
     this.el.querySelector('[data-act=mode]')!.addEventListener('click', () => this.cb.onMode());
     this.el.querySelector('[data-act=view]')!.addEventListener('click', () => this.cb.onView());
+    this.el.querySelector('[data-act=gear]')!.addEventListener('click', () => this.cb.onGear());
 
     // Tap a hotbar slot to pick that block.
     hotbarEl.classList.add('tappable');
@@ -158,12 +157,18 @@ export class TouchControls {
     };
     this.reset();
     set('.touch-btns [data-slot=a]', combat ? '攻擊' : '挖', combat ? '攻擊' : '挖方塊');
-    set('.touch-btns [data-slot=b]', combat ? '防禦' : '放', combat ? '防禦（按住）' : '放方塊');
+    // Combat: attack = LMB, guard = hold E, dodge = RMB (same as the keyboard and mouse).
+    set(
+      '.touch-btns [data-slot=b]',
+      combat ? '防禦' : '放',
+      combat ? '防禦（按住）' : '放方塊',
+      combat ? 'KeyE' : 'Mouse2',
+    );
     set(
       '.touch-btns [data-slot=c]',
       combat ? '閃避' : '飛',
       combat ? '閃避' : '飛行開關',
-      combat ? 'KeyQ' : 'fly',
+      combat ? 'Mouse2' : 'fly',
     );
     this.el.classList.toggle('combat', combat);
     this.el.querySelector('[data-act=mode]')!.textContent = combat ? '🔨' : '⚔️';

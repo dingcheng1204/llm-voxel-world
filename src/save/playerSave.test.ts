@@ -10,8 +10,11 @@ const good: PlayerSaveData = {
   species: 'monkey',
   pos: [3.5, 22, 30.5],
   yaw: 1.2,
-  hp: 14,
+  hp: 5,
+  maxHp: 8,
+  maxStamina: 60,
   inventory: [{ id: B.stone, count: 5 }, null],
+  gear: { weapon: 'magic_twig', armor: 'wood_shield', shoes: null, bag: ['stick'] },
   savedAt: 123,
 };
 
@@ -33,8 +36,14 @@ describe('player saves', () => {
     expect(parseSave({ ...good, playerId: 'hacker' })).toBeNull();
     expect(parseSave({ ...good, pos: [9999, 20, 0] })).toBeNull();
     expect(parseSave({ ...good, pos: [0, Number.NaN, 0] })).toBeNull();
-    const p = parseSave({ ...good, hp: 500, species: 'dragon', inventory: 'lots' })!;
+    const p = parseSave({ ...good, hp: 500, maxHp: 999, species: 'dragon', inventory: 'lots', gear: 'x' })!;
+    expect(p.maxHp).toBe(20);
     expect(p.hp).toBe(20);
+    expect(p.gear).toBeNull();
+    // Old saves without the new fields: 3 hearts.
+    const old = parseSave({ ...good, hp: 20, maxHp: undefined, maxStamina: undefined, gear: undefined })!;
+    expect(old.maxHp).toBe(6);
+    expect(old.hp).toBe(6);
     expect(p.species).toBe('tiger');
     expect(p.inventory).toEqual([]);
   });

@@ -43,6 +43,15 @@ export interface MyCombat {
 export interface HitEvent {
   from: string;
   dmg: number;
+  kind: 'melee' | 'magic';
+}
+
+/** A magic bolt someone fired (drawn locally; its hit arrives as a HitEvent). */
+export interface ShotEvent {
+  from: string;
+  origin: [number, number, number];
+  dir: [number, number, number];
+  range: number;
 }
 
 const freshCombat = (): RemoteCombat => ({ hp: 20, mode: 'build', guard: false, swings: 0, dead: false });
@@ -72,6 +81,8 @@ export class Island {
   onStatus: (s: Status) => void = () => {};
   /** Someone hit me (PvP). */
   onHit: (e: HitEvent) => void = () => {};
+  /** Someone fired a magic bolt. */
+  onShot: (e: ShotEvent) => void = () => {};
   /** Someone was knocked out: `victim` by `by` (either may be me). */
   onKo: (victim: string, by: string) => void = () => {};
 
@@ -99,6 +110,7 @@ export class Island {
     ch.on('presence', { event: 'sync' }, () => this.syncRoster(ch))
       .on('broadcast', { event: 'pos' }, ({ payload }) => this.onPos(payload as Record<string, unknown>))
       .on('broadcast', { event: 'hit' }, ({ payload }) => this.onHitMsg(payload as Record<string, unknown>))
+      .on('broadcast', { event: 'shot' }, ({ payload }) => this.onShotMsg(payload as Record<string, unknown>))
       .on('broadcast', { event: 'ko' }, ({ payload }) => {
         const p = payload as Record<string, unknown>;
         if (typeof p.victim === 'string' && typeof p.by === 'string') this.onKo(p.victim, p.by);
@@ -150,9 +162,20 @@ export class Island {
   }
 
   /** Tell `to` that I hit them for `dmg` (they decide whether it counts). */
-  sendHit(to: string, dmg: number): void {
+  sendHit(to: string, dmg: number, kind: 'melee' | 'magic'): void {
     if (this.status !== 'online' || !this.channel) return;
-    void this.channel.send({ type: 'broadcast', event: 'hit', payload: { from: this.me.id, to, dmg } });
+    void this.channel.send({ type: 'broadcast', event: 'hit', payload: { from: this.me.id, to, dmg, kind } });
+  }
+
+  /** I fired a magic bolt (everyone nearby draws it). */
+  sendShot(origin: [number, number, number], dir: [number, number, number], range: number): void {
+    if (this.status !== 'online' || !this.channel) return;
+    const r = (v: number) => +v.toFixed(2);
+    void this.channel.send({
+      type: 'broadcast',
+      event: 'shot',
+      payload: { from: this.me.id, o: origin.map(r), d: dir.map(r), r: range },
+    });
   }
 
   /** I was knocked out by `by` (everyone shows it). */
@@ -240,6 +263,19 @@ export class Island {
   private onHitMsg(p: Record<string, unknown>): void {
     if (p.to !== this.me.id || typeof p.from !== 'string' || !this.players.has(p.from)) return;
     const dmg = typeof p.dmg === 'number' && Number.isFinite(p.dmg) ? p.dmg : 0;
-    this.onHit({ from: p.from, dmg });
+    this.onHit({ from: p.from, dmg, kind: p.kind === 'magic' ? 'magic' : 'melee' });
+  }
+
+  private onShotMsg(p: Record<string, unknown>): void {
+    if (typeof p.from !== 'string' || !this.players.has(p.from)) return;
+    const vec = (v: unknown) =>
+      Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n))
+        ? (v as [number, number, number])
+        : null;
+    const o = vec(p.o);
+    const d = vec(p.d);
+    const range = typeof p.r === 'number' && Number.isFinite(p.r) ? Math.min(30, Math.max(1, p.r)) : 0;
+    if (!o || !d || !range) return;
+    this.onShot({ from: p.from, origin: o, dir: d, range });
   }
 }

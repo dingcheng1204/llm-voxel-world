@@ -2,13 +2,16 @@
 // (knockouts, saves), a red flash when hurt, and the "you fell" screen with a respawn button.
 // Plain DOM (styles in index.html), redrawn only when values change.
 
-import { COMBAT, type Mode } from '../player/combat';
+import type { Mode } from '../player/combat';
+import type { Stats } from '../player/equipment';
 
 export class Hud {
   readonly el: HTMLElement;
   private readonly hearts: HTMLElement;
   private readonly staminaFill: HTMLElement;
   private readonly modeEl: HTMLElement;
+  private readonly statsEl: HTMLButtonElement;
+  private statsKey = '';
   private readonly saveEl: HTMLElement;
   private readonly toastEl: HTMLElement;
   private readonly hurtEl: HTMLElement;
@@ -27,10 +30,12 @@ export class Hud {
         <div class="hearts" aria-label="血量"></div>
         <button type="button" class="mode" title="切換模式（R）"></button>
         <div class="stamina" aria-label="體力"><div class="fill"></div></div>
-      </div>`;
+      </div>
+      <button type="button" class="stats" title="裝備（I）"></button>`;
     this.hearts = this.el.querySelector('.hearts')!;
     this.staminaFill = this.el.querySelector('.stamina .fill')!;
     this.modeEl = this.el.querySelector('.mode')!;
+    this.statsEl = this.el.querySelector('.stats')!;
     this.saveEl = document.createElement('div');
     this.saveEl.id = 'save-pill';
     this.saveEl.hidden = true;
@@ -60,25 +65,41 @@ export class Hud {
     this.modeEl.onclick = fn;
   }
 
+  /** Clicking the stats pill opens the equipment panel. */
+  set onStatsClick(fn: () => void) {
+    this.statsEl.onclick = fn;
+  }
+
+  /** Weapon + total attack / defense / speed. */
+  setStats(weapon: { icon: string; name: string } | null, s: Stats, touch: boolean): void {
+    const key = `${weapon?.name}|${s.attack}|${s.defense}|${s.speed}|${touch}`;
+    if (key === this.statsKey) return;
+    this.statsKey = key;
+    const w = weapon ? `${weapon.icon} ${weapon.name}` : '✊ 空手';
+    this.statsEl.innerHTML = `<span>${w}</span><span>⚔️ ${s.attack}</span><span>🛡️ ${s.defense}</span><span>👟 ${s.speed.toFixed(1)}</span><span class="bag">🎒${touch ? '' : ' <kbd>I</kbd>'}</span>`;
+  }
+
   setVisible(on: boolean): void {
     this.el.hidden = !on;
   }
 
-  setVitals(hp: number, stamina: number, guarding: boolean): void {
-    const key = `${hp}`;
+  setVitals(hp: number, maxHp: number, stamina: number, maxStamina: number, guarding: boolean): void {
+    const key = `${hp}/${maxHp}/${maxStamina}`;
     if (key !== this.heartsKey) {
       this.heartsKey = key;
-      const n = COMBAT.maxHp / 2;
+      // The stamina bar is longer when max stamina has been raised.
+      this.staminaFill.parentElement!.style.width = `${Math.round(maxStamina * 1.4)}px`;
+      const n = Math.ceil(maxHp / 2);
       let html = '';
       for (let i = 0; i < n; i++) {
         const v = hp - i * 2;
         html += `<span class="heart ${v >= 2 ? 'full' : v === 1 ? 'half' : 'empty'}"></span>`;
       }
       this.hearts.innerHTML = html;
-      this.hearts.classList.toggle('low', hp <= 6);
-      this.hearts.setAttribute('aria-label', `血量 ${hp}/${COMBAT.maxHp}`);
+      this.hearts.classList.toggle('low', hp <= 2);
+      this.hearts.setAttribute('aria-label', `血量 ${hp}/${maxHp}`);
     }
-    this.staminaFill.style.width = `${(stamina / COMBAT.maxStamina) * 100}%`;
+    this.staminaFill.style.width = `${(stamina / maxStamina) * 100}%`;
     this.staminaFill.parentElement!.classList.toggle('guard', guarding);
   }
 
