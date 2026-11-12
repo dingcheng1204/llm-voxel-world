@@ -9,7 +9,17 @@ const attacker = (over: Partial<OnlinePlayer['combat']> = {}, x = 1.5): OnlinePl
   species: 'tiger',
   pos: { x, y: 20, z: 0, heading: 0 },
   seenAt: 1000,
-  combat: { hp: 6, mode: 'combat', guard: false, swings: 1, dead: false, ...over },
+  combat: {
+    hp: 6,
+    maxHp: 6,
+    mode: 'combat',
+    guard: false,
+    swings: 1,
+    dead: false,
+    weapon: 'stick',
+    armor: null,
+    ...over,
+  },
 });
 const base = {
   myMode: 'combat' as const,

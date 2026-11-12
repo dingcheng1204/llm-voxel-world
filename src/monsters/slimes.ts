@@ -9,6 +9,7 @@ import { B } from '../world/blocks';
 import { SEA_LEVEL } from '../world/coords';
 import type { World } from '../world/world';
 import type { Hittable } from '../player/controller';
+import { HpBar } from '../scene/hpBar';
 
 export const SLIME = {
   hp: 8,
@@ -45,6 +46,8 @@ export class Slime implements Hittable {
   readonly root = new THREE.Group();
   private readonly mesh: THREE.Mesh;
   private readonly material: THREE.MeshLambertMaterial;
+  /** Health bar above the slime. */
+  private readonly hpBar = new HpBar('', 0.7);
   private squash = 0;
   /** Horizontal velocity of the current hop (kept while airborne so a wall bump doesn't stop it). */
   private readonly hopVel = { x: 0, z: 0 };
@@ -77,6 +80,9 @@ export class Slime implements Hittable {
     parts.push(cheek);
     this.mesh = new THREE.Mesh(merge(parts), this.material);
     this.root.add(this.mesh);
+    this.hpBar.sprite.position.y = 1.05;
+    this.hpBar.set(this.hp, SLIME.hp);
+    this.root.add(this.hpBar.sprite);
   }
 
   get x(): number {
@@ -94,7 +100,8 @@ export class Slime implements Hittable {
 
   hit(damage: number, fromX: number, fromZ: number): void {
     if (!this.alive) return;
-    this.hp -= damage;
+    this.hp = Math.max(0, this.hp - damage);
+    this.hpBar.set(this.hp, SLIME.hp);
     this.hurtFlash = 0.2;
     const dx = this.body.x - fromX;
     const dz = this.body.z - fromZ;
@@ -184,6 +191,7 @@ export class Slime implements Hittable {
     let s = 1;
     if (this.dying !== null) s = Math.max(0.01, this.dying / 0.35);
     this.mesh.scale.set(s * (1 + sq + wob), s * (1 - sq - wob), s * (1 + sq + wob));
+    this.hpBar.sprite.visible = this.dying === null;
     // A faint green glow keeps them readable at night; red flash when hit.
     if (this.hurtFlash > 0) this.material.emissive.setRGB(0.8, 0.05, 0.05);
     else this.material.emissive.setRGB(0.08, 0.22, 0.08);
@@ -192,6 +200,7 @@ export class Slime implements Hittable {
   dispose(): void {
     this.mesh.geometry.dispose();
     this.material.dispose();
+    this.hpBar.dispose();
   }
 }
 
