@@ -268,7 +268,7 @@ Supabase 專案：`llm-voxel-world`（ap-northeast-1 東京）。SQL 在 `supaba
 
 ## 11. 帳號、存檔與戰鬥（階段 6.5）
 
-**帳號**：Supabase Auth，Email + 密碼，開著 email 確認。註冊時 `emailRedirectTo` = 目前網站（正式、預覽或本機都能用），確認連結帶著 session 回來（implicit flow，換裝置開信也行），頁面自動登入並讀回存檔；連結過期或用過會提示重寄。Supabase 後台：Site URL = `https://llm-voxel-world.vercel.app`，Redirect URLs 包含正式網址、`https://*-ding-4ed7.vercel.app/**`、`http://localhost:5173/**`。訪客也能玩，進度存在瀏覽器。
+**帳號**：Supabase Auth，Email + 密碼，開著 email 確認。註冊時 `emailRedirectTo` = 目前網站（正式、預覽或本機都能用），確認連結帶著 session 回來（implicit flow，換裝置開信也行），頁面自動登入並讀回存檔；連結過期或用過會提示重寄。Supabase 後台：Site URL = `https://llm-voxel-world.dinxnai.com`（正式網域），Redirect URLs 包含 `https://llm-voxel-world.dinxnai.com/**`、`https://llm-voxel-world.vercel.app/**`、`https://*-ding-4ed7.vercel.app/**`（預覽）、`http://localhost:5173/**`。新增網域時兩邊都要加。訪客也能玩，進度存在瀏覽器。
 
 **存檔**（`src/save/`）：一人一格 `player_saves (user_id, seed) → data jsonb`，RLS 只能讀寫自己的列。內容：玩家 id、名字、動物、腳的位置、面向、血量、背包。手動（K／💾）、每分鐘自動、分頁隱藏或關閉時存；雲端自動存檔最多 20 秒一次。讀檔時雲端與本機副本取較新的。所有讀回的資料都驗證（位置範圍、方塊 id、數量）。
 

@@ -6,8 +6,8 @@
 
 **新增（11/11 下午）**：上線的玩家也是島上的角色（取名字、選蛇／老虎／猴子），彼此看得到對方走動；遊戲裡有即時聊天視窗，可以對所有人或對某一位說話，Clio 和 Gem 也會回應玩家。
 
-- 線上版：https://llm-voxel-world.vercel.app （push 到 `main` 會自動部署）
-- 日記頁：https://llm-voxel-world.vercel.app/diary
+- 線上版：https://llm-voxel-world.dinxnai.com （也可用 https://llm-voxel-world.vercel.app ；push 到 `main` 會自動部署）
+- 日記頁：https://llm-voxel-world.dinxnai.com/diary
 - 原始碼：https://github.com/dingcheng1204/llm-voxel-world
 - 藍圖：[BLUEPRINT.md](./BLUEPRINT.md)；勾選清單：[ROADMAP.md](./ROADMAP.md)；效能：[PERFORMANCE.md](./PERFORMANCE.md)
 
@@ -191,7 +191,7 @@ Supabase（llm-voxel-world，東京）
 - **有人開著網頁時 Gem 用額度比較快**：每 20 秒一次，約每小時 180 次；每天 470 次用完就睡到下午 4 點。
 - **史萊姆只在自己的畫面**：每位玩家各自打自己的史萊姆，別人看不到。
 - **PvP 信任客戶端**：被打的人自己判定，改過程式的人可以作弊。之後可改成伺服器判定。
-- **Email 確認信**：註冊後要點信裡的連結才能登入（連結會回到申請的那個網址並自動登入；可重寄）。Supabase 內建寄信每小時只能寄幾封，玩家多了要接自己的 SMTP（例如 Resend）。Supabase 後台的 Site URL 要設成正式網址、Redirect URLs 要包含正式網址／預覽網址／localhost:5173。
+- **Email 確認信**：註冊後要點信裡的連結才能登入（連結會回到申請的那個網址並自動登入；可重寄）。Supabase 內建寄信每小時只能寄幾封，玩家多了要接自己的 SMTP（例如 Resend）。Supabase 後台的 Site URL 要設成正式網域 `llm-voxel-world.dinxnai.com`，Redirect URLs 要包含自訂網域、vercel.app、預覽網址和 localhost:5173。
 - **日記頁的字體**（霞鶩文楷、粉圓）從 Google Fonts 載入，第一次打開會稍慢。
 
 ---
