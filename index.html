@@ -115,6 +115,9 @@
         box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
       }
       .hotbar-label {
+        position: absolute;
+        bottom: calc(100% + 36px);
+        white-space: nowrap;
         font-size: 14px;
         font-weight: 700;
         color: #2b2b3a;
@@ -327,6 +330,340 @@
         background: #d0652b;
       }
 
+      /* ---- inventory counts ---- */
+      .slot .count {
+        position: absolute;
+        right: 5px;
+        bottom: 2px;
+        font-size: 12px;
+        font-weight: 800;
+        color: #2b2b3a;
+        text-shadow:
+          0 0 3px #fff,
+          0 0 3px #fff;
+      }
+      .slot.empty {
+        background: rgba(255, 255, 255, 0.35);
+      }
+      body.touch .slot .count {
+        font-size: 10px;
+        right: 3px;
+        bottom: 0;
+      }
+
+      /* ---- HUD: hearts, stamina, mode ---- */
+      #hud {
+        position: fixed;
+        left: 50%;
+        bottom: 98px;
+        transform: translateX(-50%);
+        pointer-events: none;
+        font-family: ui-rounded, 'Nunito', system-ui, sans-serif;
+      }
+      #hud[hidden],
+      #save-pill[hidden],
+      #toast[hidden],
+      #death[hidden] {
+        display: none;
+      }
+      .hud-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .hearts {
+        display: flex;
+        gap: 2px;
+      }
+      .heart {
+        width: 16px;
+        height: 15px;
+        background: #e3e8f0;
+        clip-path: path('M8 15 L1.2 8.2 A4 4 0 0 1 8 2.6 A4 4 0 0 1 14.8 8.2 Z');
+        filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
+      }
+      .heart.full {
+        background: #ff5a6e;
+      }
+      .heart.half {
+        background: linear-gradient(90deg, #ff5a6e 0 50%, #e3e8f0 50% 100%);
+      }
+      .hearts.low .heart.full,
+      .hearts.low .heart.half {
+        animation: beat 0.8s ease-in-out infinite;
+      }
+      @keyframes beat {
+        50% {
+          transform: scale(1.18);
+        }
+      }
+      .stamina {
+        width: 120px;
+        height: 9px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.6);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+        overflow: hidden;
+      }
+      .stamina .fill {
+        height: 100%;
+        background: #6cc8f2;
+        border-radius: 99px;
+        transition: width 0.1s linear;
+      }
+      .stamina.guard .fill {
+        background: #ffc94d;
+      }
+      #hud .mode {
+        pointer-events: auto;
+        border: 0;
+        border-radius: 999px;
+        padding: 4px 12px;
+        font:
+          800 13px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        color: #2b2b3a;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 2px 8px rgba(30, 60, 90, 0.18);
+        cursor: pointer;
+      }
+      #hud .mode[data-mode='combat'] {
+        background: #ff8a5c;
+        color: #fff;
+      }
+      body.combat #crosshair {
+        width: 22px;
+        height: 22px;
+        margin: -11px 0 0 -11px;
+        background: none;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        box-sizing: border-box;
+      }
+      body.touch #hud {
+        bottom: calc(60px + env(safe-area-inset-bottom));
+      }
+      body.touch .heart {
+        width: 12px;
+        height: 11px;
+        clip-path: path('M6 11 L0.9 6 A3 3 0 0 1 6 1.9 A3 3 0 0 1 11.1 6 Z');
+      }
+      body.touch .stamina {
+        width: 80px;
+      }
+      #touch.combat [data-slot='a'] {
+        background: #ff8a5c;
+        color: #fff;
+      }
+      #touch.combat [data-slot='b'] {
+        background: #ffe1a0;
+      }
+
+      #save-pill,
+      #toast {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        font:
+          700 13px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        color: #2b2b3a;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 999px;
+        padding: 5px 14px;
+        box-shadow: 0 4px 14px rgba(30, 60, 90, 0.18);
+        pointer-events: none;
+        z-index: 25;
+      }
+      #save-pill {
+        top: 12px;
+        opacity: 0;
+      }
+      #save-pill.flash {
+        animation: fadeLabel 3s ease forwards;
+      }
+      #save-pill[data-kind='warn'] {
+        background: #fff1d6;
+      }
+      #toast {
+        top: 44px;
+        font-size: 15px;
+      }
+      #hurt {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0;
+        z-index: 15;
+      }
+      #hurt.hit {
+        background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 40, 60, 0.55));
+      }
+      #hurt.blocked {
+        background: radial-gradient(ellipse at center, transparent 55%, rgba(255, 200, 70, 0.45));
+      }
+      #hurt.on {
+        animation: hurtFlash 0.45s ease-out;
+      }
+      @keyframes hurtFlash {
+        0% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+      #death {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: grid;
+        place-items: center;
+        background: rgba(120, 30, 50, 0.35);
+        font-family: ui-rounded, 'Nunito', system-ui, sans-serif;
+        color: #2b2b3a;
+      }
+      .death-card {
+        background: rgba(255, 255, 255, 0.94);
+        border-radius: 24px;
+        padding: 22px 30px;
+        text-align: center;
+        max-width: 340px;
+        margin: 0 12px;
+        box-shadow: 0 12px 40px rgba(60, 20, 30, 0.3);
+      }
+      .death-card .big {
+        font-size: 44px;
+      }
+      .death-card h2 {
+        margin: 2px 0 6px;
+      }
+      .death-card .cause {
+        font-weight: 700;
+        color: #c9455a;
+        margin: 0 0 6px;
+      }
+      .death-card .go {
+        font:
+          800 17px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        border: 0;
+        border-radius: 14px;
+        padding: 10px 34px;
+        background: #e2763a;
+        color: #fff;
+        cursor: pointer;
+        box-shadow: 0 4px 0 #b9562a;
+      }
+      .death-card .note {
+        font-size: 13px;
+        color: #5b6b86;
+      }
+
+      /* ---- account (email + password) and save ---- */
+      .account {
+        text-align: left;
+        border-top: 1px dashed #d6dce6;
+        padding-top: 10px;
+        margin-bottom: 10px;
+      }
+      .account[hidden] {
+        display: none;
+      }
+      .account .acct-title {
+        margin: 0 0 6px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #5b6b86;
+      }
+      .account .acct-title small {
+        font-weight: 600;
+        color: #8a93a6;
+      }
+      .account form {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+      }
+      .account input {
+        grid-column: span 2;
+        font:
+          600 15px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        border: 2px solid #cfd6e2;
+        border-radius: 10px;
+        padding: 7px 10px;
+        min-width: 0;
+      }
+      .account input:focus {
+        outline: none;
+        border-color: #2fa7ee;
+      }
+      .account button,
+      .save-row button {
+        font:
+          700 14px ui-rounded,
+          'Nunito',
+          system-ui,
+          sans-serif;
+        border: 0;
+        border-radius: 10px;
+        padding: 8px;
+        cursor: pointer;
+        background: #e8f4fd;
+        color: #1f6fa8;
+      }
+      .account button[type='submit'] {
+        background: #2fa7ee;
+        color: #fff;
+      }
+      .account button:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+      .account .acct-in p {
+        margin: 0;
+        font-size: 14px;
+      }
+      .account .link {
+        background: none;
+        padding: 0 4px;
+        text-decoration: underline;
+        color: #5b6b86;
+      }
+      .acct-msg {
+        margin: 6px 0 0;
+        font-size: 13px;
+        min-height: 1em;
+        color: #2f8a4c;
+      }
+      .acct-msg.err {
+        color: #c9455a;
+      }
+      .save-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 10px;
+        font-size: 12px;
+        color: #5b6b86;
+      }
+      .save-row[hidden] {
+        display: none;
+      }
+      .save-row kbd {
+        font-size: 11px;
+      }
+
       /* ---- touch controls (phones / tablets) ---- */
       #touch {
         position: fixed;
@@ -428,16 +765,16 @@
         width: 60px;
         height: 60px;
       }
-      .touch-btns [data-hold='fly'] {
+      .touch-btns [data-slot='c'] {
         grid-area: fly;
         width: 44px;
         height: 44px;
         font-size: 15px;
       }
-      .touch-btns [data-hold='Mouse2'] {
+      .touch-btns [data-slot='b'] {
         grid-area: place;
       }
-      .touch-btns [data-hold='Mouse0'] {
+      .touch-btns [data-slot='a'] {
         grid-area: dig;
       }
       .touch-btns .jump {
@@ -720,15 +1057,47 @@
           <p id="join-error" class="err" role="alert"></p>
           <button type="submit" class="go">進入小島</button>
         </form>
+        <section id="account" class="account" hidden>
+          <div class="acct-out">
+            <p class="acct-title">
+              💾 用 Email 保存進度 <small>換電腦也能回到上次的地方和物資（選填）</small>
+            </p>
+            <form id="acct-form" novalidate>
+              <input id="acct-email" type="email" placeholder="Email" autocomplete="email" />
+              <input
+                id="acct-pass"
+                type="password"
+                placeholder="密碼（至少 6 個字）"
+                autocomplete="current-password"
+              />
+              <button type="submit" data-act="login">登入</button>
+              <button type="button" data-act="signup">註冊新帳號</button>
+            </form>
+          </div>
+          <div class="acct-in" hidden>
+            <p>
+              ✅ 已登入 <b id="acct-who"></b>
+              <button type="button" id="acct-logout" class="link">登出</button>
+            </p>
+          </div>
+          <p id="acct-msg" class="acct-msg" role="status"></p>
+        </section>
+        <div class="save-row" id="save-row" hidden>
+          <button type="button" id="save-now">💾 立刻存檔</button><span id="save-when"></span>
+        </div>
         <div class="keys keys-touch">
           <span>左下拇指 走路（推到底 衝刺）</span><span>右邊滑動 轉視角</span><span>跳／挖／放 按鈕</span
-          ><span>點方塊列 選方塊</span><span>💬 聊天 · 點地圖 放大</span><span>❚❚ 暫停 · 橫向比較好玩</span>
+          ><span>⚔️ 戰鬥模式：攻擊／防禦／閃避</span><span>👁 切換視角</span><span>點方塊列 選方塊</span
+          ><span>💬 聊天 · 點地圖 放大</span><span>❚❚ 暫停 · 橫向比較好玩</span>
         </div>
         <div class="keys keys-desktop">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動</span
           ><span><kbd>空白</kbd> 跳 / 游上去</span> <span><kbd>Shift</kbd> 衝刺</span
           ><span><kbd>F</kbd> 飛行開關（<kbd>C</kbd> 下降）</span> <span>左鍵 挖方塊</span
           ><span>右鍵 放方塊</span> <span><kbd>1</kbd>–<kbd>9</kbd> / 滾輪 選方塊</span
+          ><span><kbd>R</kbd> 一般 ⇄ 戰鬥模式</span>
+          <span>戰鬥：左鍵 攻擊 · 按住右鍵 防禦 · <kbd>Q</kbd> 閃避</span
+          ><span><kbd>V</kbd> 第一／第三人稱</span> <span><kbd>K</kbd> 存檔（每分鐘也會自動存）</span
           ><span><kbd>T</kbd> 聊天（<kbd>Enter</kbd> 送出）</span> <span><kbd>M</kbd> 地圖放大縮小</span
           ><span><kbd>F3</kbd> 效能面板 · <kbd>Esc</kbd> 暫停</span>
         </div>
