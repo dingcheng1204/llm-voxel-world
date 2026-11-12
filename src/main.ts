@@ -468,8 +468,24 @@ if (player) {
       acctWho.textContent = email ?? '';
     };
     account.onChange = renderAccount;
-    void account.ready.then(() => {
+    const resendBtn = acctForm.querySelector<HTMLButtonElement>('[data-act=resend]')!;
+    const showResend = (on: boolean) => {
+      resendBtn.hidden = !on;
+      if (on && account.pendingEmail && !acctEmail.value) acctEmail.value = account.pendingEmail;
+    };
+    void account.ready.then(async () => {
       renderAccount();
+      // Opened from the confirmation mail: either signed in now, or the link failed / expired.
+      if (account.link?.kind === 'confirmed' && account.userId) {
+        await afterSignIn(true);
+        say(`✅ Email 已確認，已經用 ${account.email} 登入！${joined ? '' : '按「進入小島」開始玩。'}`);
+        return;
+      }
+      if (account.link?.kind === 'error') {
+        say(account.link.message, true);
+        showResend(true);
+        return;
+      }
       if (account.userId) void afterSignIn(false);
     });
     const submit = async (act: 'login' | 'signup') => {
@@ -480,11 +496,19 @@ if (player) {
           ? await account.signIn(acctEmail.value, acctPass.value)
           : await account.signUp(acctEmail.value, acctPass.value);
       busy(false);
+      showResend(!!r.needsConfirm);
       if (!r.ok) return say(r.error, true);
       acctPass.value = '';
       if (r.message) return say(r.message);
       await afterSignIn(act === 'signup');
     };
+    resendBtn.addEventListener('click', async () => {
+      busy(true);
+      say('寄信中…');
+      const r = await account.resendConfirmation(acctEmail.value || account.pendingEmail || '');
+      busy(false);
+      say(r.ok ? (r.message ?? '已重寄') : r.error, !r.ok);
+    });
     acctForm.addEventListener('submit', (e) => {
       e.preventDefault();
       void submit('login');

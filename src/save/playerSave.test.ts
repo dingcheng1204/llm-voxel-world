@@ -58,3 +58,18 @@ describe('account helpers', () => {
     expect(authError('User already registered')).toContain('註冊過');
   });
 });
+
+describe('confirmation links', () => {
+  it('reads what the link put in the URL', async () => {
+    const { readLink } = await import('./account');
+    expect(readLink('#access_token=abc&type=signup&expires_in=3600', '')).toEqual({ kind: 'confirmed' });
+    expect(
+      readLink('#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid', ''),
+    ).toEqual({
+      kind: 'error',
+      message: '確認連結已經過期或用過了，請重寄一封確認信',
+    });
+    expect(readLink('', '?error=server_error&error_description=Oops+here')?.kind).toBe('error');
+    expect(readLink('', '?touch=1')).toBeNull();
+  });
+});

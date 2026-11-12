@@ -625,6 +625,14 @@
         background: #2fa7ee;
         color: #fff;
       }
+      .account .resend {
+        grid-column: span 2;
+        background: #fff4e0;
+        color: #9a5b10;
+      }
+      .account .resend[hidden] {
+        display: none;
+      }
       .account button:disabled {
         opacity: 0.6;
         cursor: wait;
@@ -1234,6 +1242,7 @@
               />
               <button type="submit" data-act="login">登入</button>
               <button type="button" data-act="signup">註冊新帳號</button>
+              <button type="button" data-act="resend" class="resend" hidden>📧 重寄確認信</button>
             </form>
           </div>
           <div class="acct-in" hidden>
