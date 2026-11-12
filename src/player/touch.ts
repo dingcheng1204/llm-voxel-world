@@ -46,6 +46,9 @@ function capture(el: Element, pointerId: number): void {
 export interface TouchCallbacks {
   onPause(): void;
   onChat(): void;
+  onMode(): void;
+  onView(): void;
+  onGear(): void;
 }
 
 export class TouchControls {
@@ -73,11 +76,14 @@ export class TouchControls {
       <div class="touch-top">
         <button type="button" data-act="pause" aria-label="暫停">❚❚</button>
         <button type="button" data-act="chat" aria-label="聊天">💬</button>
+        <button type="button" data-act="view" aria-label="切換視角">👁</button>
+        <button type="button" data-act="gear" aria-label="裝備">🎒</button>
+        <button type="button" data-act="mode" class="mode" aria-label="切換戰鬥模式">⚔️</button>
       </div>
       <div class="touch-btns">
-        <button type="button" data-hold="fly" class="small" aria-label="飛行開關">飛</button>
-        <button type="button" data-hold="Mouse2" aria-label="放方塊">放</button>
-        <button type="button" data-hold="Mouse0" aria-label="挖方塊">挖</button>
+        <button type="button" data-hold="fly" data-slot="c" class="small" aria-label="飛行開關">飛</button>
+        <button type="button" data-hold="Mouse2" data-slot="b" aria-label="放方塊">放</button>
+        <button type="button" data-hold="Mouse0" data-slot="a" aria-label="挖方塊">挖</button>
         <button type="button" data-hold="Space" class="jump" aria-label="跳">跳</button>
       </div>`;
     document.body.append(this.el);
@@ -91,8 +97,8 @@ export class TouchControls {
     canvas.addEventListener('pointercancel', (e) => this.up(e));
 
     for (const b of this.el.querySelectorAll<HTMLButtonElement>('[data-hold]')) {
-      const code = b.dataset.hold!;
       const press = (down: boolean) => {
+        const code = b.dataset.hold!;
         b.classList.toggle('on', down);
         if (code === 'fly') {
           this.input.hold('KeyF', down);
@@ -114,6 +120,9 @@ export class TouchControls {
     }
     this.el.querySelector('[data-act=pause]')!.addEventListener('click', () => this.cb.onPause());
     this.el.querySelector('[data-act=chat]')!.addEventListener('click', () => this.cb.onChat());
+    this.el.querySelector('[data-act=mode]')!.addEventListener('click', () => this.cb.onMode());
+    this.el.querySelector('[data-act=view]')!.addEventListener('click', () => this.cb.onView());
+    this.el.querySelector('[data-act=gear]')!.addEventListener('click', () => this.cb.onGear());
 
     // Tap a hotbar slot to pick that block.
     hotbarEl.classList.add('tappable');
@@ -135,6 +144,34 @@ export class TouchControls {
     } catch {
       /* not allowed here */
     }
+  }
+
+  /** Combat mode: dig → attack, place → guard, fly → dodge. */
+  setMode(mode: 'build' | 'combat'): void {
+    const combat = mode === 'combat';
+    const set = (sel: string, text: string, label: string, hold?: string) => {
+      const b = this.el.querySelector<HTMLButtonElement>(sel)!;
+      b.textContent = text;
+      b.setAttribute('aria-label', label);
+      if (hold) b.dataset.hold = hold;
+    };
+    this.reset();
+    set('.touch-btns [data-slot=a]', combat ? '攻擊' : '挖', combat ? '攻擊' : '挖方塊');
+    // Combat: attack = LMB, guard = hold E, dodge = RMB (same as the keyboard and mouse).
+    set(
+      '.touch-btns [data-slot=b]',
+      combat ? '防禦' : '放',
+      combat ? '防禦（按住）' : '放方塊',
+      combat ? 'KeyE' : 'Mouse2',
+    );
+    set(
+      '.touch-btns [data-slot=c]',
+      combat ? '閃避' : '飛',
+      combat ? '閃避' : '飛行開關',
+      combat ? 'Mouse2' : 'fly',
+    );
+    this.el.classList.toggle('combat', combat);
+    this.el.querySelector('[data-act=mode]')!.textContent = combat ? '🔨' : '⚔️';
   }
 
   /** Shown while playing. */

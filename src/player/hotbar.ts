@@ -1,25 +1,12 @@
-import { B, BLOCKS } from '../world/blocks';
-
-export interface HotbarItem {
-  id: number;
-  label: string;
-}
-
-export const DEFAULT_HOTBAR: readonly HotbarItem[] = [
-  { id: B.grass, label: '草' },
-  { id: B.dirt, label: '土' },
-  { id: B.stone, label: '石頭' },
-  { id: B.log, label: '原木' },
-  { id: B.planks, label: '木板' },
-  { id: B.brick, label: '磚' },
-  { id: B.toy_yellow, label: '玩具方塊' },
-  { id: B.water, label: '水' },
-  { id: B.fire, label: '火' },
-];
+import { BLOCKS } from '../world/blocks';
+import { labelOf, SLOTS, type Inventory, type Stack } from './inventory';
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
-/** 1–9 / mouse-wheel hotbar rendered as DOM (cheap, crisp, no extra draw calls). */
+/**
+ * 1–9 / mouse-wheel hotbar rendered as DOM (cheap, crisp, no extra draw calls).
+ * Shows the inventory's 9 slots with their counts; empty slots stay selectable (placing does nothing).
+ */
 export class Hotbar {
   selected = 0;
   private readonly slots: HTMLElement[] = [];
@@ -27,40 +14,67 @@ export class Hotbar {
 
   constructor(
     el: HTMLElement,
-    readonly items: readonly HotbarItem[] = DEFAULT_HOTBAR,
+    readonly inventory: Inventory,
   ) {
     el.innerHTML = '';
     const row = document.createElement('div');
     row.className = 'hotbar-row';
-    items.forEach((item, i) => {
-      const def = BLOCKS[item.id]!;
+    for (let i = 0; i < SLOTS; i++) {
       const slot = document.createElement('div');
       slot.className = 'slot';
+      row.appendChild(slot);
+      this.slots.push(slot);
+    }
+    this.label = document.createElement('div');
+    this.label.className = 'hotbar-label';
+    el.append(this.label, row);
+    const prev = inventory.onChange;
+    inventory.onChange = () => {
+      prev();
+      this.refresh();
+    };
+    this.refresh();
+    this.select(0);
+  }
+
+  /** The selected stack, or null if that slot is empty. */
+  get current(): Stack | null {
+    return this.inventory.slots[this.selected] ?? null;
+  }
+
+  /** Redraw all slots from the inventory. */
+  refresh(): void {
+    this.slots.forEach((slot, i) => {
+      const s = this.inventory.slots[i];
+      const key = `${s?.id ?? 0}:${s?.count ?? 0}`;
+      if (slot.dataset.key === key) return;
+      slot.dataset.key = key;
       slot.innerHTML = `<span class="key">${i + 1}</span>`;
+      slot.classList.toggle('empty', !s);
+      slot.title = s ? labelOf(s.id) : '空';
+      if (!s) return;
+      const def = BLOCKS[s.id]!;
       const cube = document.createElement('div');
       cube.className = 'cube';
       cube.style.setProperty('--top', hex(def.colors.top));
       cube.style.setProperty('--side', hex(def.colors.side));
-      slot.appendChild(cube);
-      slot.title = item.label;
-      row.appendChild(slot);
-      this.slots.push(slot);
+      const n = document.createElement('span');
+      n.className = 'count';
+      n.textContent = String(s.count);
+      slot.append(cube, n);
     });
-    this.label = document.createElement('div');
-    this.label.className = 'hotbar-label';
-    el.append(this.label, row);
-    this.select(0);
-  }
-
-  get current(): HotbarItem {
-    return this.items[this.selected]!;
   }
 
   select(i: number): void {
-    const n = this.items.length;
+    const n = SLOTS;
     this.selected = ((i % n) + n) % n;
     this.slots.forEach((s, k) => s.classList.toggle('active', k === this.selected));
-    this.label.textContent = this.current.label;
+    this.flash(this.current ? labelOf(this.current.id) : '空格');
+  }
+
+  /** Show a short message above the hotbar (block name, "背包滿了", …). */
+  flash(text: string): void {
+    this.label.textContent = text;
     this.label.classList.remove('flash');
     void this.label.offsetWidth; // restart the fade animation
     this.label.classList.add('flash');

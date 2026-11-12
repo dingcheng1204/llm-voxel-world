@@ -17,7 +17,44 @@ export interface OnlinePlayer {
   pos: { x: number; y: number; z: number; heading: number } | null;
   /** performance.now() of the last position. */
   seenAt: number;
+  /** Combat state from their position updates. */
+  combat: RemoteCombat;
 }
+
+export interface RemoteCombat {
+  hp: number;
+  mode: 'build' | 'combat';
+  guard: boolean;
+  /** Swing counter (a change = they just swung). */
+  swings: number;
+  dead: boolean;
+}
+
+/** What the local player broadcasts with each position. */
+export interface MyCombat {
+  hp: number;
+  mode: 'build' | 'combat';
+  guard: boolean;
+  swings: number;
+  dead: boolean;
+}
+
+/** A PvP hit someone landed on me (validated by main before it hurts). */
+export interface HitEvent {
+  from: string;
+  dmg: number;
+  kind: 'melee' | 'magic';
+}
+
+/** A magic bolt someone fired (drawn locally; its hit arrives as a HitEvent). */
+export interface ShotEvent {
+  from: string;
+  origin: [number, number, number];
+  dir: [number, number, number];
+  range: number;
+}
+
+const freshCombat = (): RemoteCombat => ({ hp: 20, mode: 'build', guard: false, swings: 0, dead: false });
 
 export interface LiveMessage {
   id: number;
@@ -42,6 +79,12 @@ export class Island {
   onRoster: () => void = () => {};
   onMessage: (m: LiveMessage) => void = () => {};
   onStatus: (s: Status) => void = () => {};
+  /** Someone hit me (PvP). */
+  onHit: (e: HitEvent) => void = () => {};
+  /** Someone fired a magic bolt. */
+  onShot: (e: ShotEvent) => void = () => {};
+  /** Someone was knocked out: `victim` by `by` (either may be me). */
+  onKo: (victim: string, by: string) => void = () => {};
 
   private channel: RealtimeChannel | null = null;
   private lastSent = 0;
@@ -66,6 +109,12 @@ export class Island {
     });
     ch.on('presence', { event: 'sync' }, () => this.syncRoster(ch))
       .on('broadcast', { event: 'pos' }, ({ payload }) => this.onPos(payload as Record<string, unknown>))
+      .on('broadcast', { event: 'hit' }, ({ payload }) => this.onHitMsg(payload as Record<string, unknown>))
+      .on('broadcast', { event: 'shot' }, ({ payload }) => this.onShotMsg(payload as Record<string, unknown>))
+      .on('broadcast', { event: 'ko' }, ({ payload }) => {
+        const p = payload as Record<string, unknown>;
+        if (typeof p.victim === 'string' && typeof p.by === 'string') this.onKo(p.victim, p.by);
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) =>
         this.onMessage(p.new as LiveMessage),
       )
@@ -87,9 +136,9 @@ export class Island {
   }
 
   /** Call every frame with the local player's feet position; throttled. */
-  sendPosition(x: number, y: number, z: number, heading: number, now = performance.now()): void {
+  sendPosition(x: number, y: number, z: number, heading: number, c: MyCombat, now = performance.now()): void {
     if (this.status !== 'online' || !this.channel) return;
-    const key = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)},${heading.toFixed(2)}`;
+    const key = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)},${heading.toFixed(2)},${c.hp},${c.mode},${c.guard},${c.swings},${c.dead}`;
     const due = now - this.lastSent >= (key === this.lastPos ? KEEPALIVE_MS : POS_INTERVAL_MS);
     if (!due) return;
     this.lastSent = now;
@@ -103,8 +152,36 @@ export class Island {
         y: +y.toFixed(2),
         z: +z.toFixed(2),
         h: +heading.toFixed(2),
+        hp: Math.round(c.hp),
+        m: c.mode === 'combat' ? 'c' : 'b',
+        g: c.guard ? 1 : 0,
+        s: c.swings,
+        d: c.dead ? 1 : 0,
       },
     });
+  }
+
+  /** Tell `to` that I hit them for `dmg` (they decide whether it counts). */
+  sendHit(to: string, dmg: number, kind: 'melee' | 'magic'): void {
+    if (this.status !== 'online' || !this.channel) return;
+    void this.channel.send({ type: 'broadcast', event: 'hit', payload: { from: this.me.id, to, dmg, kind } });
+  }
+
+  /** I fired a magic bolt (everyone nearby draws it). */
+  sendShot(origin: [number, number, number], dir: [number, number, number], range: number): void {
+    if (this.status !== 'online' || !this.channel) return;
+    const r = (v: number) => +v.toFixed(2);
+    void this.channel.send({
+      type: 'broadcast',
+      event: 'shot',
+      payload: { from: this.me.id, o: origin.map(r), d: dir.map(r), r: range },
+    });
+  }
+
+  /** I was knocked out by `by` (everyone shows it). */
+  sendKo(by: string): void {
+    if (this.status !== 'online' || !this.channel) return;
+    void this.channel.send({ type: 'broadcast', event: 'ko', payload: { victim: this.me.id, by } });
   }
 
   /** Say something in the chat window. `to` = null for everyone, or a character / player id. */
@@ -155,6 +232,7 @@ export class Island {
         species: meta.species,
         pos: prev?.pos ?? null,
         seenAt: prev?.seenAt ?? performance.now(),
+        combat: prev?.combat ?? freshCombat(),
       });
     }
     for (const id of [...this.players.keys()]) if (!seen.has(id)) this.players.delete(id);
@@ -172,5 +250,32 @@ export class Island {
     if (x === null || y === null || z === null) return;
     pl.pos = { x, y, z, heading: n(p.h) ?? 0 };
     pl.seenAt = performance.now();
+    const hp = n(p.hp);
+    pl.combat = {
+      hp: hp === null ? pl.combat.hp : Math.max(0, Math.min(20, hp)),
+      mode: p.m === 'c' ? 'combat' : 'build',
+      guard: p.g === 1,
+      swings: n(p.s) ?? pl.combat.swings,
+      dead: p.d === 1,
+    };
+  }
+
+  private onHitMsg(p: Record<string, unknown>): void {
+    if (p.to !== this.me.id || typeof p.from !== 'string' || !this.players.has(p.from)) return;
+    const dmg = typeof p.dmg === 'number' && Number.isFinite(p.dmg) ? p.dmg : 0;
+    this.onHit({ from: p.from, dmg, kind: p.kind === 'magic' ? 'magic' : 'melee' });
+  }
+
+  private onShotMsg(p: Record<string, unknown>): void {
+    if (typeof p.from !== 'string' || !this.players.has(p.from)) return;
+    const vec = (v: unknown) =>
+      Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n))
+        ? (v as [number, number, number])
+        : null;
+    const o = vec(p.o);
+    const d = vec(p.d);
+    const range = typeof p.r === 'number' && Number.isFinite(p.r) ? Math.min(30, Math.max(1, p.r)) : 0;
+    if (!o || !d || !range) return;
+    this.onShot({ from: p.from, origin: o, dir: d, range });
   }
 }

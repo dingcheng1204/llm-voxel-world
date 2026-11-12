@@ -17,7 +17,18 @@ import { ChatLog, Landmarks } from './agents/worldState';
 import { Hotbar } from './player/hotbar';
 import { TouchControls, wantsTouch } from './player/touch';
 import { Input } from './player/input';
-import { PlayerController } from './player/controller';
+import { PlayerController, type Hittable } from './player/controller';
+import { Inventory, STARTER_KIT } from './player/inventory';
+import { Bolts } from './player/bolts';
+import { GEAR, STARTER_GEAR } from './player/equipment';
+import { GearPanel } from './ui/gearPanel';
+import { Slimes, SLIME } from './monsters/slimes';
+import { Hud } from './ui/hud';
+import { Account } from './save/account';
+import { SaveManager, type SaveStatus } from './save/saveManager';
+import type { PlayerSaveData } from './save/playerSave';
+import { acceptHit } from './multiplayer/pvp';
+import { B } from './world/blocks';
 import { SEA_LEVEL } from './world/coords';
 import { WorldSave } from './world/persistence';
 import { World } from './world/world';
@@ -104,7 +115,7 @@ const agentCtx = {
     others: () => [
       ...agents.map((a) => ({ id: a.id, pos: a.body.pos, doing: a.executor.doing })),
       ...(player && joined ? [{ id: me.id, name: me.name, pos: player.bodyPos, doing: 'player' }] : []),
-      ...(remote ? remote.list().map((r) => ({ ...r, doing: 'player' })) : []),
+      ...(remote ? remote.list().map((r) => ({ id: r.id, name: r.name, pos: r.pos, doing: 'player' })) : []),
     ],
     now: 0,
     areaAt: (x: number, z: number) => world.terrain.biomeAt(x, z),
@@ -199,18 +210,73 @@ const overlay = new DebugOverlay(debugEl, ctx.renderer);
 const demo = params.get('view') === 'overview' || lineup;
 const input = new Input(ctx.renderer.domElement);
 const hotbarEl = document.getElementById('hotbar')!;
-const hotbar = new Hotbar(hotbarEl);
+const inventory = new Inventory();
+const hotbar = new Hotbar(hotbarEl, inventory);
+// Night slimes (local to this player; the plaza is a safe zone).
+const slimes = new Slimes(world, plaza);
+ctx.scene.add(slimes.group);
+// Magic bolts (mine can hit; other players' are drawn only).
+const bolts = new Bolts();
+ctx.scene.add(bolts.group);
+/** Other players I can hit: only those in combat mode (and only while I am too — see pvp.ts). */
+const pvpTargets = (): Hittable[] =>
+  (remote?.list() ?? [])
+    .filter((r) => r.combat?.mode === 'combat' && !r.combat.dead)
+    .map((r) => ({
+      id: r.id,
+      x: r.pos.x,
+      y: r.pos.y,
+      z: r.pos.z,
+      hit: (dmg: number, _x: number, _z: number, kind: 'melee' | 'magic') => island?.sendHit(r.id, dmg, kind),
+    }));
 const player = demo
   ? null
-  : new PlayerController(world, input, hotbar, ctx.camera, { x: plaza.x + 0.5, z: plaza.z + 5.5 }, () =>
-      agents.map((a) => ({ pos: a.body.pos })),
+  : new PlayerController(
+      world,
+      input,
+      hotbar,
+      ctx.camera,
+      { x: plaza.x + 0.5, z: plaza.z + 5.5 },
+      () => agents.map((a) => ({ pos: a.body.pos })),
+      () => [...slimes.targets(), ...pvpTargets()],
+      bolts,
     );
+player?.setSpecies(me.species);
+const hud = new Hud(document.body);
 // ---- Joining, live players and chat (deployed site only: needs Supabase Realtime + /api/chat/say) ----
 let island: Island | null = null;
 let chatWindow: ChatWindow | null = null;
 let typing = false;
 let touch: TouchControls | null = null;
 const nameCache = new Map<string, string>();
+// ---- Accounts and saves: one save per player (position, facing, hp, inventory) ----
+const account = cfg.cloud && player ? new Account() : null;
+let deadScreen = false;
+const saves = new SaveManager(cfg.seed, account, (): PlayerSaveData | null => {
+  if (!player || !joined) return null;
+  // Dead (or reloading on the death screen): the save is already the respawned state.
+  const dead = player.dead;
+  const sp = player.spawnPoint;
+  const b = player.bodyPos;
+  return {
+    v: 1,
+    playerId: me.id,
+    name: me.name,
+    species: me.species,
+    pos: dead ? [sp.x, sp.y, sp.z] : [b.x, b.y, b.z],
+    yaw: player.yaw,
+    hp: dead ? player.vitals.maxHp : Math.max(1, Math.round(player.vitals.hp)),
+    maxHp: player.vitals.maxHp,
+    maxStamina: player.vitals.maxStamina,
+    inventory: dead ? STARTER_KIT.map((s) => ({ ...s })) : inventory.toJSON(),
+    gear: dead ? { ...STARTER_GEAR, bag: [] } : player.equipment.toJSON(),
+    savedAt: Date.now(),
+  };
+});
+/** A save waiting to be applied when the player enters the island. */
+let pendingSave: PlayerSaveData | null = player ? saves.loadGuest() : null;
+let lastPvp: { by: string; at: number } | null = null;
+const lastHitFrom = new Map<string, number>();
 // Minimap (top right): you, the characters, other players and the places the characters named.
 const minimap = player
   ? new Minimap(document.body, cfg.seed, () => {
@@ -275,11 +341,40 @@ if (player) {
   const nameInput = document.getElementById('join-name') as HTMLInputElement;
   const errorEl = document.getElementById('join-error')!;
   const goBtn = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
+  const saveRow = document.getElementById('save-row')!;
+  const saveWhen = document.getElementById('save-when')!;
   playOverlay.hidden = false;
   hotbarEl.hidden = false;
-  nameInput.value = me.name;
-  form.querySelector<HTMLInputElement>(`input[name=species][value=${me.species}]`)!.checked = true;
-  if (me.name) goBtn.textContent = '繼續';
+  const showIdentity = () => {
+    nameInput.value = me.name;
+    form.querySelector<HTMLInputElement>(`input[name=species][value=${me.species}]`)!.checked = true;
+    if (me.name) goBtn.textContent = '繼續';
+  };
+  // A guest save in this browser: resume as that name and animal.
+  if (pendingSave)
+    me = { ...me, id: pendingSave.playerId, name: pendingSave.name, species: pendingSave.species };
+  showIdentity();
+  player.setSpecies(me.species);
+
+  /** Put the player where a save says, with its inventory and hp (and its name/animal). */
+  const applySave = (data: PlayerSaveData) => {
+    me = { ...me, name: data.name, species: data.species, ...(joined ? {} : { id: data.playerId }) };
+    saveIdentity(me);
+    showIdentity();
+    player.setSpecies(me.species);
+    player.teleport(data.pos[0], data.pos[1], data.pos[2], data.yaw);
+    inventory.set(data.inventory);
+    if (data.gear) player.equipment.set(data.gear);
+    else player.equipment.reset();
+    player.vitals.maxHp = data.maxHp;
+    player.vitals.maxStamina = data.maxStamina;
+    player.vitals.reset(data.hp);
+    if (joined) {
+      island?.setIdentity(me);
+      chatWindow?.refreshPeople();
+    }
+  };
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const n = checkName(nameInput.value);
@@ -293,35 +388,268 @@ if (player) {
     const changed = n.name !== me.name || species !== me.species;
     me = { ...me, name: n.name, species: PLAYER_SPECIES.includes(species) ? species : 'tiger' };
     saveIdentity(me);
+    player.setSpecies(me.species);
     goBtn.textContent = '繼續';
     if (!joined) {
+      if (pendingSave) {
+        const p = pendingSave;
+        pendingSave = null;
+        applySave({ ...p, name: me.name, species: me.species });
+      } else {
+        player.vitals.reset();
+      }
       joined = true;
+      saveRow.hidden = false;
       startIsland();
       minimap?.show();
       touch?.enterFullscreen();
+      saves.start();
     } else if (changed) {
       island?.setIdentity(me);
       chatWindow?.refreshPeople();
     }
     input.requestLock();
   });
+
+  // ---- Account box (email + password) ----
+  const acctBox = document.getElementById('account')!;
+  const acctForm = document.getElementById('acct-form') as HTMLFormElement;
+  const acctEmail = document.getElementById('acct-email') as HTMLInputElement;
+  const acctPass = document.getElementById('acct-pass') as HTMLInputElement;
+  const acctMsg = document.getElementById('acct-msg')!;
+  const acctOut = acctBox.querySelector<HTMLElement>('.acct-out')!;
+  const acctIn = acctBox.querySelector<HTMLElement>('.acct-in')!;
+  const acctWho = document.getElementById('acct-who')!;
+  const acctBtns = acctBox.querySelectorAll<HTMLButtonElement>('button');
+  const say = (text: string, err = false) => {
+    acctMsg.textContent = text;
+    acctMsg.classList.toggle('err', err);
+  };
+  const fmtTime = (t: number) =>
+    new Date(t).toLocaleString('zh-TW', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  const busy = (on: boolean) => acctBtns.forEach((b) => (b.disabled = on));
+  /** After signing in (or a restored session): load the account's save, or store the current progress. */
+  const afterSignIn = async (fresh: boolean) => {
+    try {
+      const data = await saves.loadBest();
+      if (data) {
+        if (joined) {
+          applySave(data);
+          hud.toast(`📂 已讀取存檔（${fmtTime(data.savedAt)}）`);
+          say(`已讀取 ${fmtTime(data.savedAt)} 的存檔`);
+        } else {
+          pendingSave = data;
+          me = { ...me, id: data.playerId, name: data.name, species: data.species };
+          showIdentity();
+          player.setSpecies(me.species);
+          say(`找到 ${fmtTime(data.savedAt)} 的存檔，按「繼續」回到上次的地方`);
+        }
+      } else if (joined) {
+        await saves.save('login');
+        say('帳號還沒有存檔，已把目前的進度存進去');
+      } else {
+        say(fresh ? '帳號建好了！進入小島後會自動存檔' : '帳號還沒有存檔，進入小島後會自動存檔');
+      }
+    } catch {
+      say('讀不到雲端存檔，等一下再試', true);
+    }
+  };
+  if (account) {
+    acctBox.hidden = false;
+    const renderAccount = () => {
+      const email = account.email;
+      acctOut.hidden = !!email;
+      acctIn.hidden = !email;
+      acctWho.textContent = email ?? '';
+    };
+    account.onChange = renderAccount;
+    const resendBtn = acctForm.querySelector<HTMLButtonElement>('[data-act=resend]')!;
+    const showResend = (on: boolean) => {
+      resendBtn.hidden = !on;
+      if (on && account.pendingEmail && !acctEmail.value) acctEmail.value = account.pendingEmail;
+    };
+    void account.ready.then(async () => {
+      renderAccount();
+      // Opened from the confirmation mail: either signed in now, or the link failed / expired.
+      if (account.link?.kind === 'confirmed' && account.userId) {
+        await afterSignIn(true);
+        say(`✅ Email 已確認，已經用 ${account.email} 登入！${joined ? '' : '按「進入小島」開始玩。'}`);
+        return;
+      }
+      if (account.link?.kind === 'error') {
+        say(account.link.message, true);
+        showResend(true);
+        return;
+      }
+      if (account.userId) void afterSignIn(false);
+    });
+    const submit = async (act: 'login' | 'signup') => {
+      busy(true);
+      say(act === 'login' ? '登入中…' : '建立帳號中…');
+      const r =
+        act === 'login'
+          ? await account.signIn(acctEmail.value, acctPass.value)
+          : await account.signUp(acctEmail.value, acctPass.value);
+      busy(false);
+      showResend(!!r.needsConfirm);
+      if (!r.ok) return say(r.error, true);
+      acctPass.value = '';
+      if (r.message) return say(r.message);
+      await afterSignIn(act === 'signup');
+    };
+    resendBtn.addEventListener('click', async () => {
+      busy(true);
+      say('寄信中…');
+      const r = await account.resendConfirmation(acctEmail.value || account.pendingEmail || '');
+      busy(false);
+      say(r.ok ? (r.message ?? '已重寄') : r.error, !r.ok);
+    });
+    acctForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void submit('login');
+    });
+    acctForm.querySelector('[data-act=signup]')!.addEventListener('click', () => void submit('signup'));
+    document.getElementById('acct-logout')!.addEventListener('click', async () => {
+      if (joined) await saves.save('manual');
+      await account.signOut();
+      say('已登出。之後的進度只存在這台電腦。');
+    });
+  }
+
+  // ---- Saving ----
+  const saveText = (st: SaveStatus) =>
+    st.at ? `已存檔 ${fmtTime(st.at)}・${st.where === 'cloud' ? '帳號' : '這台電腦'}` : '';
+  saves.onStatus = (st, reason) => {
+    if (st.saving) return hud.setSave('💾 存檔中…', 'busy');
+    saveWhen.textContent = st.error ?? saveText(st);
+    if (reason === 'manual' || reason === 'login' || st.error)
+      hud.setSave(st.error ? `⚠️ ${st.error}` : `💾 ${saveText(st)}`, st.error ? 'warn' : 'ok');
+  };
+  document.getElementById('save-now')!.addEventListener('click', () => void saves.save('manual'));
+
+  // ---- Health, death and respawn ----
+  const syncMode = () => {
+    hud.setMode(player.mode, !!touch);
+    touch?.setMode(player.mode);
+  };
+  player.onModeChange = syncMode;
+  hud.onModeClick = () => player.setMode(player.mode === 'build' ? 'combat' : 'build');
+  player.onHurt = (r) => hud.hurt(r.blocked || r.dodged);
+  player.onDeath = (cause) => {
+    deadScreen = true;
+    if (lastPvp && performance.now() - lastPvp.at < 1500) island?.sendKo(lastPvp.by);
+    lastPvp = null;
+    hud.showDeath(cause);
+    input.release();
+    void saves.save('respawn'); // the save is now "back at the plaza with the starter kit"
+  };
+  hud.onRespawn = () => {
+    player.respawn();
+    inventory.reset();
+    player.equipment.reset();
+    bolts.clear();
+    player.vitals.reset();
+    slimes.clear();
+    deadScreen = false;
+    hud.hideDeath();
+    input.requestLock();
+  };
+  // Slimes bite; defeating one drops a toy block.
+  const toys = [B.toy_red, B.toy_orange, B.toy_yellow, B.toy_blue];
+  slimes.onBite = (s) => player.hurt(SLIME.damage, { from: { x: s.x, z: s.z } }, '被史萊姆咬了');
+  // Gear a slime may drop (chance per kill) — the only way to find new equipment for now.
+  const DROPS: [string, number][] = [
+    ['magic_twig', 0.08],
+    ['wood_sword', 0.05],
+    ['leather_boots', 0.03],
+    ['stone_shield', 0.02],
+    ['crystal_wand', 0.01],
+    ['stone_sword', 0.01],
+  ];
+  slimes.onKill = () => {
+    let roll = Math.random();
+    for (const [id, p] of DROPS) {
+      if (roll < p) {
+        const g = GEAR[id]!;
+        if (player.equipment.give(id))
+          hud.toast(`✨ 史萊姆掉了 ${g.icon} ${g.name}！按 I 打開裝備換上`, 5000);
+        else hud.toast(`✨ 史萊姆掉了 ${g.icon} ${g.name}，但裝備袋滿了`);
+        return;
+      }
+      roll -= p;
+    }
+    const toy = toys[Math.floor(Math.random() * toys.length)]!;
+    if (inventory.add(toy, 1)) hotbar.flash('打倒史萊姆！撿到一個玩具方塊');
+    else hotbar.flash('打倒史萊姆！（背包滿了）');
+  };
+  player.onCast = (o, d, range) => island?.sendShot([o.x, o.y, o.z], [d.x, d.y, d.z], range);
+
+  // ---- Equipment panel (I / 🎒) ----
+  let gearOpen = false;
+  const gearPanel = new GearPanel(document.body, player.equipment, () => ({
+    maxHp: player.vitals.maxHp,
+    maxStamina: player.vitals.maxStamina,
+  }));
+  const openGear = () => {
+    if (gearOpen || deadScreen) return;
+    gearOpen = true;
+    gearPanel.show();
+    input.release();
+  };
+  const closeGear = () => {
+    if (!gearOpen) return;
+    gearOpen = false;
+    gearPanel.hide();
+    input.requestLock();
+  };
+  gearPanel.onClose = closeGear;
+  hud.onStatsClick = openGear;
+  window.addEventListener('keydown', (e) => {
+    if (gearOpen && (e.code === 'Escape' || e.code === 'KeyI')) {
+      e.preventDefault();
+      closeGear();
+    }
+  });
+  Object.assign(window, { __gear: { open: openGear, close: closeGear, panel: gearPanel } });
+  syncMode();
+
   // Phones / tablets: on-screen joystick, look by dragging, buttons (no pointer lock).
   touch = wantsTouch()
     ? new TouchControls(ctx.renderer.domElement, input, hotbar, hotbarEl, {
         onPause: () => input.release(),
         onChat: () => chatWindow?.open(),
+        onMode: () => player.setMode(player.mode === 'build' ? 'combat' : 'build'),
+        onView: () => player.setView(player.view === 'first' ? 'third' : 'first'),
+        onGear: () => openGear(),
       })
     : null;
+  syncMode();
   input.onLockChange = (locked) => {
-    playOverlay.hidden = locked || typing;
+    playOverlay.hidden = locked || typing || deadScreen || gearOpen;
     crosshair.hidden = !locked;
     touch?.setVisible(locked && !typing);
+    hud.setVisible(joined && (locked || deadScreen || gearOpen));
+    if (!locked && joined && !deadScreen && !gearOpen) void saves.save('auto');
   };
-  // T or Enter while playing opens the chat box.
+  // T or Enter while playing opens the chat box; K saves; M toggles the map.
   window.addEventListener('keydown', (e) => {
     if (!input.locked || typing) return;
     if (e.code === 'KeyM' && !e.repeat) {
       minimap?.toggle();
+      return;
+    }
+    if (e.code === 'KeyK' && !e.repeat) {
+      void saves.save('manual');
+      return;
+    }
+    if (e.code === 'KeyI' && !e.repeat) {
+      e.preventDefault();
+      openGear();
       return;
     }
     if (!chatWindow) return;
@@ -407,6 +735,35 @@ function startIsland(): void {
   island.onStatus = (st) =>
     chatWindow?.setStatus(st === 'online' ? '' : st === 'offline' ? '連線中斷，正在重新連線…' : '連線中…');
   island.onMessage = (m) => onLiveMessage(m);
+  // PvP: a hit someone landed on me (judged here — see pvp.ts), and knockouts.
+  island.onHit = (e) => {
+    if (!player || player.dead) return;
+    const attacker = island?.players.get(e.from);
+    const now = performance.now();
+    const dmg = acceptHit({
+      myMode: player.mode,
+      myPos: player.bodyPos,
+      attacker,
+      dmg: e.dmg,
+      kind: e.kind,
+      lastHitAt: lastHitFrom.get(e.from),
+      now,
+    });
+    if (!dmg || !attacker?.pos) return;
+    lastHitFrom.set(e.from, now);
+    lastPvp = { by: e.from, at: now };
+    player.hurt(dmg, { from: attacker.pos }, `被 ${attacker.name} 打倒了`);
+  };
+  island.onKo = (victim, by) => {
+    const name = (id: string) => (id === me.id ? '你' : (island?.players.get(id)?.name ?? '某人'));
+    if (victim === me.id) return; // the death screen already says it
+    hud.toast(by === me.id ? `⚔️ 你打倒了 ${name(victim)}！` : `⚔️ ${name(by)} 打倒了 ${name(victim)}`);
+  };
+  island.onShot = (e) => {
+    const o = new THREE.Vector3(...e.origin);
+    if (player && o.distanceTo(player.bodyPos) > 60) return;
+    bolts.fire(o, new THREE.Vector3(...e.dir), e.range, 0, false);
+  };
   island.start();
   island
     .recentMessages(40)
@@ -472,18 +829,28 @@ const loop = new GameLoop(
       prev.copy(next);
       orbit(t, next);
       player?.tick(dt);
+      if (player && joined) {
+        const b = player.bodyPos;
+        slimes.tick(dt, dayNight.night, { x: b.x, y: b.y, z: b.z, alive: !player.dead });
+      }
+      bolts.tick(dt, world, () => [...slimes.targets(), ...pvpTargets()]);
       simTime += dt;
       lastUpdateAt = performance.now();
       if (!lineup) for (const a of agents) a.tick(dt, simTime);
     },
     render(alpha, frameDt) {
+      const time = t + alpha / cfg.tickRate;
       if (player) {
-        player.render(alpha);
+        player.render(alpha, time, frameDt);
+        slimes.render(alpha, time);
+        bolts.render(time);
+        const v = player.vitals;
+        hud.setVitals(v.hp, v.maxHp, v.stamina, v.maxStamina, player.guarding);
+        hud.setStats(player.equipment.weaponDef, player.equipment.stats, !!touch);
       } else {
         cam.position.lerpVectors(prev, next, alpha);
         cam.lookAt(target);
       }
-      const time = t + alpha / cfg.tickRate;
       world.update(cam.position);
       // Props appear once the terrain under them exists (no floating palms while loading).
       if (!props.visible && world.stats.meshed === world.stats.total) props.visible = true;
@@ -498,7 +865,13 @@ const loop = new GameLoop(
       for (const m of lineupModels) m.animate(time, 0);
       if (player && island) {
         const b = player.bodyPos;
-        island.sendPosition(b.x, b.y, b.z, player.yaw + Math.PI);
+        island.sendPosition(b.x, b.y, b.z, player.yaw + Math.PI, {
+          hp: player.vitals.hp,
+          mode: player.mode,
+          guard: player.guarding,
+          swings: player.swings,
+          dead: player.dead,
+        });
       }
       ctx.renderer.render(ctx.scene, cam);
       overlay.frame(frameDt);
@@ -534,6 +907,7 @@ overlay.setExtra(() => {
     ...(player
       ? {
           player: `${player.flying ? 'flying' : player.inWater ? 'swimming' : player.body.onGround ? 'ground' : 'air'}  world edits ${world.edits.length}`,
+          combat: `${player.mode}  hp ${player.vitals.hp}  stamina ${player.vitals.stamina.toFixed(0)}  view ${player.view}  slimes ${slimes.list.length}`,
           target: player.target ? `${player.target.block.join(',')} (${player.target.id})` : '-',
         }
       : {}),
@@ -556,6 +930,12 @@ Object.assign(window, {
     player,
     input,
     hotbar,
+    inventory,
+    slimes,
+    bolts,
+    saves,
+    account,
+    hud,
     clock,
     dayNight,
     save,
