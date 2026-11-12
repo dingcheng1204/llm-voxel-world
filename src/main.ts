@@ -867,10 +867,13 @@ const loop = new GameLoop(
         const b = player.bodyPos;
         island.sendPosition(b.x, b.y, b.z, player.yaw + Math.PI, {
           hp: player.vitals.hp,
+          maxHp: player.vitals.maxHp,
           mode: player.mode,
           guard: player.guarding,
           swings: player.swings,
           dead: player.dead,
+          weapon: player.equipment.weapon,
+          armor: player.equipment.armor,
         });
       }
       ctx.renderer.render(ctx.scene, cam);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createModel, type CharacterModel, type PlayerSpecies } from '../agents/species';
-import { lowPolyMaterial, painted } from '../scene/lowpoly';
+import { HeldGear } from '../scene/gearModels';
 import { B, BLOCKS } from '../world/blocks';
 import { SEA_LEVEL } from '../world/coords';
 import { raycastVoxel, type VoxelHit } from '../world/raycast';
@@ -18,6 +18,8 @@ const REACH = 5;
 const REPEAT = 0.22; // seconds between repeated break/place while a button is held
 const FLY_SPEED = 12;
 const OCEAN_SURFACE = SEA_LEVEL + 0.82;
+/** A Shift press shorter than this is a tap (dodge in combat mode). */
+const SHIFT_TAP = 0.25;
 /** Third-person camera distance behind the head, and how high above the feet it looks from. */
 const CAM_DIST = 4.2;
 const CAM_HEAD = 1.5;
@@ -88,7 +90,11 @@ export class PlayerController {
   private readonly group = new THREE.Group();
   /** Your own animal (seen in third person). */
   private avatar: { species: PlayerSpecies; model: CharacterModel; pivot: THREE.Group } | null = null;
-  private readonly shield: THREE.Mesh;
+  private held: HeldGear | null = null;
+  /** Simulation clock (s) and when Shift went down — a short tap dodges, holding sprints. */
+  private simTime = 0;
+  private shiftAt = -1;
+  private shiftWas = false;
   private readonly spawn: THREE.Vector3;
   private readonly dir = new THREE.Vector3();
   private readonly eye = new THREE.Vector3();
@@ -120,12 +126,6 @@ export class PlayerController {
     );
     this.selection.visible = false;
     this.selection.renderOrder = 3;
-    // A round wooden shield, shown in front of the animal while guarding.
-    const disc = new THREE.CylinderGeometry(0.34, 0.34, 0.07, 9);
-    disc.rotateX(Math.PI / 2);
-    this.shield = new THREE.Mesh(painted(disc, 0xd9a35f, 0.1), lowPolyMaterial());
-    this.shield.position.set(0, 0.55, 0.62);
-    this.shield.visible = false;
     this.group.add(this.selection);
   }
 
@@ -158,10 +158,13 @@ export class PlayerController {
     if (this.avatar) {
       this.group.remove(this.avatar.pivot);
       this.avatar.model.dispose();
+      this.held?.dispose();
     }
     const model = createModel(species);
     const pivot = new THREE.Group();
-    pivot.add(model.root, this.shield);
+    pivot.add(model.root);
+    // The weapon floats at the animal's right side; the shield comes up while guarding.
+    this.held = new HeldGear(pivot, species === 'snake' ? 0.42 : 0.55);
     this.group.add(pivot);
     this.avatar = { species, model, pivot };
   }
@@ -172,7 +175,7 @@ export class PlayerController {
     this.vitals.guarding = false;
     if (mode === 'combat') this.flying = false;
     this.hotbar.flash(
-      mode === 'combat' ? '⚔️ 戰鬥模式：左鍵攻擊、右鍵閃避、按住 E 防禦' : '🔨 一般模式：挖和放方塊',
+      mode === 'combat' ? '⚔️ 戰鬥模式：左鍵攻擊、按住右鍵防禦、點 Shift 閃避' : '🔨 一般模式：挖和放方塊',
     );
     this.onModeChange();
   }
@@ -235,7 +238,16 @@ export class PlayerController {
       else this.flying = !this.flying;
     }
     const combat = this.mode === 'combat';
-    this.vitals.guarding = combat && k.has('KeyE') && this.vitals.stamina > 0;
+    // Combat: hold the right mouse button to guard.
+    this.vitals.guarding = combat && this.input.buttons.has(2) && this.vitals.stamina > 0;
+    // Shift: a quick tap (< 0.25 s) dodges in combat mode; holding it sprints (as always).
+    this.simTime += dt;
+    const shiftNow = k.has('ShiftLeft') || k.has('ShiftRight');
+    let shiftTap = false;
+    if (shiftNow && !this.shiftWas) this.shiftAt = this.simTime;
+    if (!shiftNow && this.shiftWas && this.simTime - this.shiftAt < SHIFT_TAP) shiftTap = true;
+    this.shiftWas = shiftNow;
+    const shiftHeld = shiftNow && (!combat || this.simTime - this.shiftAt >= SHIFT_TAP);
 
     // Wanted horizontal direction from WASD relative to where we look.
     // Keys give full speed; the touch joystick adds an analog amount (a light push walks slowly).
@@ -252,8 +264,9 @@ export class PlayerController {
       wz /= wl;
     }
 
-    // Dodge (combat mode, right click): a short dash where you're steering (backwards if standing still).
-    if (combat && presses.includes('Mouse2') && this.dodgeCooldown <= 0 && !this.vitals.guarding) {
+    // Dodge (combat mode, tap Shift): a short dash where you're steering (backwards if standing still).
+    const wantDodge = shiftTap || presses.includes('Dodge');
+    if (combat && wantDodge && this.dodgeCooldown <= 0 && !this.vitals.guarding) {
       if (this.vitals.spend(COMBAT.dodgeStamina)) {
         const l = Math.hypot(wx, wz);
         this.dodgeDir.x = l > 0.1 ? wx / l : Math.sin(this.yaw);
@@ -268,7 +281,7 @@ export class PlayerController {
 
     this.inWater = this.isInWater();
     // Joystick pushed all the way = sprint.
-    const sprint = k.has('ShiftLeft') || k.has('ShiftRight') || Math.hypot(m.fwd, m.side) > 0.97;
+    const sprint = shiftHeld || Math.hypot(m.fwd, m.side) > 0.97;
     // Speed comes from the character + shoes (sprint is 30 % faster).
     const walk = this.equipment.stats.speed;
     let speed = this.flying ? FLY_SPEED : sprint && !this.vitals.guarding ? walk * 1.3 : walk;
@@ -479,7 +492,13 @@ export class PlayerController {
         this.avatar.model.root.position.z = s * 0.35;
         this.avatar.model.root.rotation.x = s * 0.25;
         this.avatar.model.root.rotation.z = this.dead ? Math.PI / 2 : 0;
-        this.shield.visible = this.vitals.guarding;
+        this.held?.setGear(this.equipment.weapon, this.equipment.armor);
+        this.held?.update(
+          this.swingAnim > 0 ? 1 - this.swingAnim / 0.25 : 0,
+          this.vitals.guarding,
+          time,
+          !this.dead,
+        );
         // Blink while invulnerable after spawning or dodging.
         const blink = this.vitals.invuln > COMBAT.hurtInvuln || this.vitals.dodgeInvuln > 0;
         this.avatar.model.root.visible = !blink || Math.floor(time * 12) % 2 === 0;

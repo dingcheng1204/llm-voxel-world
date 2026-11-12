@@ -2,8 +2,8 @@
 //
 // Two modes:
 //   build  (一般模式): LMB mine, RMB place, F fly — the original controls.
-//   combat (戰鬥模式): LMB attack (melee swing or magic bolt, depending on the weapon), RMB dodge,
-//                      hold E to guard. No flying. Other players can only hit you while BOTH of you
+//   combat (戰鬥模式): LMB attack (melee swing or magic bolt, depending on the weapon), hold RMB
+//                      to guard, tap Shift to dodge (holding Shift still sprints). No flying. Other players can only hit you while BOTH of you
 //                      are in combat mode, so builders are never griefed.
 // Monsters at night hurt you in either mode. Attack / defense / speed come from equipment.ts;
 // max hp (hearts × 2) and max stamina are per player.

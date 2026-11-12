@@ -23,20 +23,27 @@ export interface OnlinePlayer {
 
 export interface RemoteCombat {
   hp: number;
+  maxHp: number;
   mode: 'build' | 'combat';
   guard: boolean;
   /** Swing counter (a change = they just swung). */
   swings: number;
   dead: boolean;
+  /** Equipped weapon / armor ids (validated against the gear list before drawing). */
+  weapon: string | null;
+  armor: string | null;
 }
 
 /** What the local player broadcasts with each position. */
 export interface MyCombat {
   hp: number;
+  maxHp: number;
   mode: 'build' | 'combat';
   guard: boolean;
   swings: number;
   dead: boolean;
+  weapon: string | null;
+  armor: string | null;
 }
 
 /** A PvP hit someone landed on me (validated by main before it hurts). */
@@ -54,7 +61,17 @@ export interface ShotEvent {
   range: number;
 }
 
-const freshCombat = (): RemoteCombat => ({ hp: 20, mode: 'build', guard: false, swings: 0, dead: false });
+const freshCombat = (): RemoteCombat => ({
+  hp: 6,
+  maxHp: 6,
+  mode: 'build',
+  guard: false,
+  swings: 0,
+  dead: false,
+  weapon: null,
+  armor: null,
+});
+const gearId = (v: unknown): string | null => (typeof v === 'string' && /^[a-z_]{1,24}$/.test(v) ? v : null);
 
 export interface LiveMessage {
   id: number;
@@ -138,7 +155,7 @@ export class Island {
   /** Call every frame with the local player's feet position; throttled. */
   sendPosition(x: number, y: number, z: number, heading: number, c: MyCombat, now = performance.now()): void {
     if (this.status !== 'online' || !this.channel) return;
-    const key = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)},${heading.toFixed(2)},${c.hp},${c.mode},${c.guard},${c.swings},${c.dead}`;
+    const key = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)},${heading.toFixed(2)},${c.hp},${c.maxHp},${c.mode},${c.guard},${c.swings},${c.dead},${c.weapon},${c.armor}`;
     const due = now - this.lastSent >= (key === this.lastPos ? KEEPALIVE_MS : POS_INTERVAL_MS);
     if (!due) return;
     this.lastSent = now;
@@ -153,10 +170,13 @@ export class Island {
         z: +z.toFixed(2),
         h: +heading.toFixed(2),
         hp: Math.round(c.hp),
+        mh: Math.round(c.maxHp),
         m: c.mode === 'combat' ? 'c' : 'b',
         g: c.guard ? 1 : 0,
         s: c.swings,
         d: c.dead ? 1 : 0,
+        w: c.weapon ?? '',
+        a: c.armor ?? '',
       },
     });
   }
@@ -253,10 +273,13 @@ export class Island {
     const hp = n(p.hp);
     pl.combat = {
       hp: hp === null ? pl.combat.hp : Math.max(0, Math.min(20, hp)),
+      maxHp: Math.max(2, Math.min(20, n(p.mh) ?? pl.combat.maxHp)),
       mode: p.m === 'c' ? 'combat' : 'build',
       guard: p.g === 1,
       swings: n(p.s) ?? pl.combat.swings,
       dead: p.d === 1,
+      weapon: gearId(p.w),
+      armor: gearId(p.a),
     };
   }
 

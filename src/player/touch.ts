@@ -157,18 +157,13 @@ export class TouchControls {
     };
     this.reset();
     set('.touch-btns [data-slot=a]', combat ? '攻擊' : '挖', combat ? '攻擊' : '挖方塊');
-    // Combat: attack = LMB, guard = hold E, dodge = RMB (same as the keyboard and mouse).
-    set(
-      '.touch-btns [data-slot=b]',
-      combat ? '防禦' : '放',
-      combat ? '防禦（按住）' : '放方塊',
-      combat ? 'KeyE' : 'Mouse2',
-    );
+    // Combat: attack = LMB, guard = hold RMB, dodge = a 'Dodge' press (Shift tap on keyboards).
+    set('.touch-btns [data-slot=b]', combat ? '防禦' : '放', combat ? '防禦（按住）' : '放方塊', 'Mouse2');
     set(
       '.touch-btns [data-slot=c]',
       combat ? '閃避' : '飛',
       combat ? '閃避' : '飛行開關',
-      combat ? 'Mouse2' : 'fly',
+      combat ? 'Dodge' : 'fly',
     );
     this.el.classList.toggle('combat', combat);
     this.el.querySelector('[data-act=mode]')!.textContent = combat ? '🔨' : '⚔️';

@@ -8,7 +8,9 @@ import { Bubble } from '../scene/bubble';
 import { createNameTag } from '../scene/nameTag';
 import { SPECIES_COLOR, SPECIES_LABEL } from './identity';
 import type { Island, RemoteCombat } from './island';
-import { lowPolyMaterial, painted } from '../scene/lowpoly';
+import { HeldGear } from '../scene/gearModels';
+import { HpBar } from '../scene/hpBar';
+import { GEAR } from '../player/equipment';
 
 const SPEECH_SECONDS = 7;
 /** Hide a player we haven't heard from in this long (tab in background, network hiccup). */
@@ -23,10 +25,8 @@ class RemoteView {
   private readonly speech = new Bubble('speech');
   private speechUntil = 0;
   private line = '';
-  private readonly hpBar: THREE.Sprite;
-  private readonly hpCanvas = document.createElement('canvas');
-  private hpKey = '';
-  private readonly shield: THREE.Mesh;
+  private readonly hpBar = new HpBar('⚔️');
+  private readonly held: HeldGear;
   private lastSwings = -1;
   private swingAnim = 0;
   combat: RemoteCombat | null = null;
@@ -42,64 +42,27 @@ class RemoteView {
     this.root.add(tag);
     this.speech.sprite.position.y = tag.position.y + 0.32;
     this.root.add(this.speech.sprite);
-    // Health bar (only shown in combat mode) just above the name tag.
-    this.hpCanvas.width = 128;
-    this.hpCanvas.height = 24;
-    this.hpBar = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: new THREE.CanvasTexture(this.hpCanvas),
-        transparent: true,
-        depthWrite: false,
-        fog: false,
-      }),
-    );
-    this.hpBar.scale.set(0.9, 0.17, 1);
-    this.hpBar.position.y = tag.position.y + 0.36;
-    this.hpBar.renderOrder = 2;
-    this.hpBar.visible = false;
-    this.root.add(this.hpBar);
+    // Health bar (only shown in combat mode) just above the name tag; weapon + shield on the animal.
+    this.hpBar.sprite.position.y = tag.position.y + 0.36;
+    this.hpBar.sprite.visible = false;
+    this.root.add(this.hpBar.sprite);
     this.speech.sprite.position.y += 0.2;
-    const disc = new THREE.CylinderGeometry(0.34, 0.34, 0.07, 9);
-    disc.rotateX(Math.PI / 2);
-    this.shield = new THREE.Mesh(painted(disc, 0xd9a35f, 0.1), lowPolyMaterial());
-    this.shield.position.set(0, 0.55, 0.62);
-    this.shield.visible = false;
-    this.root.add(this.shield);
-  }
-
-  private drawHp(c: RemoteCombat): void {
-    const key = `${c.hp}`;
-    if (key === this.hpKey) return;
-    this.hpKey = key;
-    const g = this.hpCanvas.getContext('2d')!;
-    g.clearRect(0, 0, 128, 24);
-    g.fillStyle = 'rgba(255,255,255,0.92)';
-    g.beginPath();
-    g.roundRect(0, 0, 128, 24, 12);
-    g.fill();
-    g.font = '16px system-ui';
-    g.textBaseline = 'middle';
-    g.fillText('⚔️', 4, 13);
-    g.fillStyle = '#e3e8f0';
-    g.beginPath();
-    g.roundRect(26, 7, 96, 10, 5);
-    g.fill();
-    g.fillStyle = c.hp > 10 ? '#5bc95b' : c.hp > 5 ? '#f2b33d' : '#e8574a';
-    g.beginPath();
-    g.roundRect(26, 7, Math.max(0, (96 * c.hp) / 20), 10, 5);
-    g.fill();
-    (this.hpBar.material as THREE.SpriteMaterial).map!.needsUpdate = true;
+    this.held = new HeldGear(this.root, species === 'snake' ? 0.42 : 0.55);
   }
 
   /** Combat state from the latest position update. */
-  setCombat(c: RemoteCombat, dt: number): void {
+  setCombat(c: RemoteCombat, dt: number, time: number): void {
     this.combat = c;
     if (this.lastSwings >= 0 && c.swings !== this.lastSwings) this.swingAnim = 0.25;
     this.lastSwings = c.swings;
     this.swingAnim = Math.max(0, this.swingAnim - dt);
-    this.hpBar.visible = c.mode === 'combat';
-    if (this.hpBar.visible) this.drawHp(c);
-    this.shield.visible = c.guard && !c.dead;
+    this.hpBar.sprite.visible = c.mode === 'combat';
+    if (this.hpBar.sprite.visible) this.hpBar.set(c.hp, c.maxHp);
+    this.held.setGear(
+      GEAR[c.weapon ?? '']?.slot === 'weapon' ? c.weapon : null,
+      GEAR[c.armor ?? ''] ? c.armor : null,
+    );
+    this.held.update(this.swingAnim > 0 ? 1 - this.swingAnim / 0.25 : 0, c.guard, time, !c.dead);
     const s = this.swingAnim > 0 ? Math.sin((1 - this.swingAnim / 0.25) * Math.PI) : 0;
     this.model.root.position.z = s * 0.35;
     this.model.root.rotation.x = s * 0.25;
@@ -136,7 +99,8 @@ class RemoteView {
 
   dispose(): void {
     this.model.dispose();
-    this.shield.geometry.dispose();
+    this.held.dispose();
+    this.hpBar.dispose();
     this.root.traverse((o) => {
       const m = (o as THREE.Sprite).material as THREE.SpriteMaterial | undefined;
       if (m?.map) m.map.dispose();
@@ -179,7 +143,7 @@ export class RemotePlayers {
         this.scene.add(v.root);
       }
       v.update(p.pos!, dt, time, now);
-      v.setCombat(p.combat, dt);
+      v.setCombat(p.combat, dt, time);
     }
     for (const id of [...this.views.keys()]) if (!this.island.players.has(id)) this.remove(id);
   }
