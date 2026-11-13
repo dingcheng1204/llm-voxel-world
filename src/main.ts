@@ -25,22 +25,14 @@ import { GearPanel } from './ui/gearPanel';
 import { Slimes, SLIME } from './monsters/slimes';
 import { Hud } from './ui/hud';
 import { Account } from './save/account';
-import { SaveManager, type SaveStatus } from './save/saveManager';
+import { forgetGuestData, SaveManager, type SaveStatus } from './save/saveManager';
 import type { PlayerSaveData } from './save/playerSave';
 import { acceptHit } from './multiplayer/pvp';
 import { B } from './world/blocks';
 import { SEA_LEVEL } from './world/coords';
 import { WorldSave } from './world/persistence';
 import { World } from './world/world';
-import {
-  checkName,
-  loadIdentity,
-  newPlayerId,
-  saveIdentity,
-  SPECIES_COLOR,
-  SPECIES_LABEL,
-  type Identity,
-} from './multiplayer/identity';
+import { checkName, newPlayerId, SPECIES_COLOR, SPECIES_LABEL, type Identity } from './multiplayer/identity';
 import { Island, type LiveMessage } from './multiplayer/island';
 import { RemotePlayers } from './multiplayer/RemotePlayers';
 import { createModel, PLAYER_SPECIES, type PlayerSpecies } from './agents/species';
@@ -79,7 +71,9 @@ const spawns = lineup
     })
   : world.terrain.spawnPoints(CAST.length);
 // The human player: a name and an animal (snake / tiger / monkey), chosen when joining.
-let me: Identity = loadIdentity() ?? { id: newPlayerId(), name: '', species: 'tiger' };
+// A fresh identity every visit: guests are not remembered; signed-in players get theirs from the save.
+let me: Identity = { id: newPlayerId(), name: '', species: 'tiger' };
+forgetGuestData(cfg.seed);
 let joined = false;
 let remote: RemotePlayers | null = null;
 
@@ -274,7 +268,7 @@ const saves = new SaveManager(cfg.seed, account, (): PlayerSaveData | null => {
   };
 });
 /** A save waiting to be applied when the player enters the island. */
-let pendingSave: PlayerSaveData | null = player ? saves.loadGuest() : null;
+let pendingSave: PlayerSaveData | null = null;
 let lastPvp: { by: string; at: number } | null = null;
 const lastHitFrom = new Map<string, number>();
 // Minimap (top right): you, the characters, other players and the places the characters named.
@@ -345,21 +339,30 @@ if (player) {
   const saveWhen = document.getElementById('save-when')!;
   playOverlay.hidden = false;
   hotbarEl.hidden = false;
+  const joinNote = document.getElementById('join-note')!;
+  /** Main button and note: guest ("nothing is saved") or signed in ("saved to <email>"). */
+  const renderJoin = () => {
+    const email = account?.email;
+    goBtn.textContent = joined ? '繼續' : email ? '進入小島' : '以訪客身分進入';
+    joinNote.innerHTML = email
+      ? `✅ 已登入 <b>${email.replace(/[<>&]/g, '')}</b>，進度會存到帳號`
+      : joined
+        ? '👤 訪客模式：不會存檔，關掉遊戲就不見了。想保存的話在下面登入，目前的進度會一起存進帳號。'
+        : '👤 訪客不會留下任何紀錄，關掉遊戲就不見了。想保存進度請先在下面登入或註冊。';
+    joinNote.dataset.kind = email ? 'account' : 'guest';
+    saveRow.hidden = !joined || !email;
+  };
   const showIdentity = () => {
     nameInput.value = me.name;
     form.querySelector<HTMLInputElement>(`input[name=species][value=${me.species}]`)!.checked = true;
-    if (me.name) goBtn.textContent = '繼續';
+    renderJoin();
   };
-  // A guest save in this browser: resume as that name and animal.
-  if (pendingSave)
-    me = { ...me, id: pendingSave.playerId, name: pendingSave.name, species: pendingSave.species };
   showIdentity();
   player.setSpecies(me.species);
 
   /** Put the player where a save says, with its inventory and hp (and its name/animal). */
   const applySave = (data: PlayerSaveData) => {
     me = { ...me, name: data.name, species: data.species, ...(joined ? {} : { id: data.playerId }) };
-    saveIdentity(me);
     showIdentity();
     player.setSpecies(me.species);
     player.teleport(data.pos[0], data.pos[1], data.pos[2], data.yaw);
@@ -387,9 +390,7 @@ if (player) {
     errorEl.textContent = '';
     const changed = n.name !== me.name || species !== me.species;
     me = { ...me, name: n.name, species: PLAYER_SPECIES.includes(species) ? species : 'tiger' };
-    saveIdentity(me);
     player.setSpecies(me.species);
-    goBtn.textContent = '繼續';
     if (!joined) {
       if (pendingSave) {
         const p = pendingSave;
@@ -399,7 +400,8 @@ if (player) {
         player.vitals.reset();
       }
       joined = true;
-      saveRow.hidden = false;
+      renderJoin();
+      if (saves.guest) hud.toast('👤 訪客模式：不會存檔，關掉遊戲就不見了', 4500);
       startIsland();
       minimap?.show();
       touch?.enterFullscreen();
@@ -466,6 +468,7 @@ if (player) {
       acctOut.hidden = !!email;
       acctIn.hidden = !email;
       acctWho.textContent = email ?? '';
+      renderJoin();
     };
     account.onChange = renderAccount;
     const resendBtn = acctForm.querySelector<HTMLButtonElement>('[data-act=resend]')!;
@@ -517,7 +520,7 @@ if (player) {
     document.getElementById('acct-logout')!.addEventListener('click', async () => {
       if (joined) await saves.save('manual');
       await account.signOut();
-      say('已登出。之後的進度只存在這台電腦。');
+      say('已登出，現在是訪客模式：之後的進度不會存檔。');
     });
   }
 
@@ -644,7 +647,8 @@ if (player) {
       return;
     }
     if (e.code === 'KeyK' && !e.repeat) {
-      void saves.save('manual');
+      if (saves.guest) hud.toast('👤 訪客模式不會存檔。按 Esc 在暫停畫面登入，就能保存進度。');
+      else void saves.save('manual');
       return;
     }
     if (e.code === 'KeyI' && !e.repeat) {

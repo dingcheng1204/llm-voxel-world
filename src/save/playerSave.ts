@@ -83,7 +83,7 @@ export function parseSave(raw: unknown): PlayerSaveData | null {
   };
 }
 
-/** localStorage key: per world seed and per account ("guest" when not signed in). */
+/** localStorage key: per world seed and per account (signed-in players only; guests save nothing). */
 export const localKey = (seed: number, who: string) => `voxel:save:${seed}:${who}`;
 
 export function loadLocal(

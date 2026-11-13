@@ -1,11 +1,26 @@
 // When to save: manually (K or the 💾 button), automatically every minute, when the tab is hidden or
-// closed, and right after respawning. Always to localStorage; also to the account when signed in
-// (automatic cloud saves at most every 20 s).
+// closed, and right after respawning — but only for signed-in players. Guests (not signed in) leave
+// no record at all: nothing is written, and closing the game forgets them.
+// Signed-in saves go to the account (automatic cloud saves at most every 20 s) plus a local copy
+// keyed by the account, used when the cloud copy is older or unreachable.
 
 import type { Account } from './account';
 import { loadLocal, saveLocal, type PlayerSaveData } from './playerSave';
 
 export type SaveReason = 'manual' | 'auto' | 'leave' | 'respawn' | 'login';
+
+/** Remove what older versions kept for guests (a local save and the remembered name/animal). */
+export function forgetGuestData(
+  seed: number,
+  storage: Pick<Storage, 'removeItem'> | undefined = globalThis.localStorage,
+) {
+  try {
+    storage?.removeItem(`voxel:save:${seed}:guest`);
+    storage?.removeItem('voxel:player');
+  } catch {
+    /* storage unavailable: nothing was kept anyway */
+  }
+}
 
 const AUTO_EVERY_MS = 60_000;
 const CLOUD_AUTO_MIN_MS = 20_000;
@@ -31,21 +46,19 @@ export class SaveManager {
     private readonly collect: () => PlayerSaveData | null,
   ) {}
 
-  private get who(): string {
-    return this.account?.userId ?? 'guest';
+  /** Signed in (progress is saved) or a guest (nothing is saved). */
+  get guest(): boolean {
+    return !this.account?.userId;
   }
 
   /** The best save to resume from: the account's cloud save (newest wins against its local copy). */
   async loadBest(): Promise<PlayerSaveData | null> {
-    const local = loadLocal(this.seed, this.who);
-    if (!this.account?.userId) return local;
-    const cloud = await this.account.load(this.seed);
+    const who = this.account?.userId;
+    if (!who) return null;
+    const local = loadLocal(this.seed, who);
+    const cloud = await this.account!.load(this.seed);
     if (!cloud) return local;
     return local && local.savedAt > cloud.savedAt ? local : cloud;
-  }
-
-  loadGuest(): PlayerSaveData | null {
-    return loadLocal(this.seed, 'guest');
   }
 
   start(): void {
@@ -58,10 +71,12 @@ export class SaveManager {
   }
 
   async save(reason: SaveReason): Promise<boolean> {
+    const who = this.account?.userId;
+    if (!who) return false; // guests leave no record
     const data = this.collect();
     if (!data) return false;
     data.savedAt = Date.now();
-    const okLocal = saveLocal(this.seed, this.who, data);
+    const okLocal = saveLocal(this.seed, who, data);
     let where: SaveStatus['where'] = okLocal ? 'local' : null;
     this.status.error = okLocal ? null : '瀏覽器不能存檔（無痕模式？）';
     const cloudDue =
@@ -69,11 +84,11 @@ export class SaveManager {
       reason === 'login' ||
       reason === 'respawn' ||
       Date.now() - this.lastCloud >= CLOUD_AUTO_MIN_MS;
-    if (this.account?.userId && cloudDue) {
+    if (cloudDue) {
       this.status.saving = true;
       if (reason === 'manual') this.onStatus(this.status, null);
       try {
-        await this.account.save(this.seed, data);
+        await this.account!.save(this.seed, data);
         this.lastCloud = Date.now();
         where = 'cloud';
         this.status.error = null;
