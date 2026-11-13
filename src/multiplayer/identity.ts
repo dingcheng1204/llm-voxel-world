@@ -1,5 +1,5 @@
 // Who this browser's player is: a stable id, a display name and a look (snake / tiger / monkey).
-// Kept in localStorage so returning players keep their name and animal.
+// Not stored: guests get a fresh identity every visit, signed-in players get theirs from their save.
 
 import { PLAYER_SPECIES, type PlayerSpecies } from '../agents/species';
 

@@ -567,6 +567,20 @@
       }
 
       /* ---- account (email + password) and save ---- */
+      .join-note {
+        margin: 8px 0 10px;
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: #5b6b86;
+        text-align: left;
+        background: #f5f8fc;
+        border-radius: 10px;
+        padding: 7px 10px;
+      }
+      .join-note[data-kind='account'] {
+        background: #eaf7ee;
+        color: #2f6b45;
+      }
       .account {
         text-align: left;
         border-top: 1px dashed #d6dce6;
@@ -1225,12 +1239,13 @@
             >
           </fieldset>
           <p id="join-error" class="err" role="alert"></p>
-          <button type="submit" class="go">進入小島</button>
+          <button type="submit" class="go">以訪客身分進入</button>
+          <p id="join-note" class="join-note" data-kind="guest"></p>
         </form>
         <section id="account" class="account" hidden>
           <div class="acct-out">
             <p class="acct-title">
-              💾 用 Email 保存進度 <small>換電腦也能回到上次的地方和物資（選填）</small>
+              💾 登入以保存進度 <small>位置、物資和裝備會存到帳號，換電腦也能繼續</small>
             </p>
             <form id="acct-form" novalidate>
               <input id="acct-email" type="email" placeholder="Email" autocomplete="email" />
@@ -1269,7 +1284,7 @@
           ><span><kbd>R</kbd> 一般 ⇄ 戰鬥模式</span>
           <span>戰鬥：左鍵 攻擊 · 按住右鍵 防禦 · 點一下 <kbd>Shift</kbd> 閃避（按住還是衝刺）</span
           ><span><kbd>I</kbd> 裝備（武器／防具／鞋子）</span><span><kbd>V</kbd> 第一／第三人稱</span>
-          <span><kbd>K</kbd> 存檔（每分鐘也會自動存）</span
+          <span><kbd>K</kbd> 存檔（登入後；每分鐘也會自動存）</span
           ><span><kbd>T</kbd> 聊天（<kbd>Enter</kbd> 送出）</span> <span><kbd>M</kbd> 地圖放大縮小</span
           ><span><kbd>F3</kbd> 效能面板 · <kbd>Esc</kbd> 暫停</span>
         </div>
