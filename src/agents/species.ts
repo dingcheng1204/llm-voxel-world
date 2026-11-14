@@ -4,10 +4,10 @@
 import * as THREE from 'three';
 import { jitter, lowPolyMaterial, merge, painted } from '../scene/lowpoly';
 
-export type Species = 'cat' | 'fox' | 'wolf' | 'snake' | 'tiger' | 'monkey';
+export type Species = 'cat' | 'fox' | 'wolf' | 'snake' | 'tiger' | 'monkey' | 'elephant';
 
 /** Looks a human player can pick when joining (characters use the others). */
-export const PLAYER_SPECIES = ['snake', 'tiger', 'monkey'] as const;
+export const PLAYER_SPECIES = ['snake', 'tiger', 'monkey', 'elephant'] as const;
 export type PlayerSpecies = (typeof PLAYER_SPECIES)[number];
 
 export interface CharacterModel {
@@ -63,6 +63,10 @@ interface QuadSpec {
   roundEars?: boolean;
   /** Lighter face mask (monkey). */
   face?: number;
+  /** Elephant: a trunk instead of a muzzle (this colour), big flapping ears, small tusks, thick legs. */
+  trunk?: number;
+  /** Tail ending in a small tuft (elephant). */
+  tuft?: number;
 }
 
 function quadruped(spec: QuadSpec): CharacterModel {
@@ -97,9 +101,10 @@ function quadruped(spec: QuadSpec): CharacterModel {
   ] as const) {
     const pivot = new THREE.Group();
     pivot.position.set(x, 0.42, z);
-    const leg = new THREE.CylinderGeometry(0.085, 0.075, 0.38, 5);
+    const thick = spec.trunk !== undefined ? 1.45 : 1;
+    const leg = new THREE.CylinderGeometry(0.085 * thick, 0.075 * thick, 0.38, 5);
     leg.translate(0, -0.19, 0);
-    const paw = blob(0.09, 1.1, 0.7, 1.3, spec.legs, 5, 0);
+    const paw = blob(0.09 * thick, 1.1, 0.7, spec.trunk !== undefined ? 1.05 : 1.3, spec.legs, 5, 0);
     paw.translate(0, -0.39, 0.03);
     pivot.add(mesh([painted(leg, spec.legs), paw]));
     root.add(pivot);
@@ -110,19 +115,41 @@ function quadruped(spec: QuadSpec): CharacterModel {
   const head = new THREE.Group();
   head.position.set(0, 0.95, 0.5);
   const r = 0.38;
-  const headParts = [
-    blob(r, 1.08, 0.95, 0.95, spec.body, 6),
-    at(blob(r * 0.48, 1.1, 0.75, 0.9 + spec.snout, spec.muzzle, 7), 0, -r * 0.32, r * 0.72),
-    at(blob(r * 0.11, 1.2, 0.9, 1, 0x2a2230, 8, 0), 0, -r * 0.16, r * (1.1 + spec.snout * 0.35)),
-    ...eyes(r),
-  ];
+  const headParts = [blob(r, 1.08, 0.95, 0.95, spec.body, 6), ...eyes(r)];
+  if (spec.trunk === undefined) {
+    headParts.push(
+      at(blob(r * 0.48, 1.1, 0.75, 0.9 + spec.snout, spec.muzzle, 7), 0, -r * 0.32, r * 0.72),
+      at(blob(r * 0.11, 1.2, 0.9, 1, 0x2a2230, 8, 0), 0, -r * 0.16, r * (1.1 + spec.snout * 0.35)),
+    );
+  } else {
+    // Small tusks either side of where the trunk starts.
+    for (const side of [-1, 1]) {
+      const tusk = new THREE.ConeGeometry(0.035, 0.16, 5);
+      tusk.rotateX(Math.PI * 0.62);
+      headParts.push(at(painted(tusk, 0xfffaf0, 0.02), side * r * 0.32, -r * 0.5, r * 0.82));
+    }
+  }
   if (spec.face !== undefined)
     headParts.push(at(blob(r * 0.72, 1.15, 0.85, 0.5, spec.face, 9), 0, -r * 0.05, r * 0.55));
   if (spec.stripes !== undefined) {
     for (const x of [-0.12, 0, 0.12])
       headParts.push(at(blob(r * 0.1, 0.5, 1.6, 0.6, spec.stripes, 60, 0), x, r * 0.72, r * 0.45));
   }
+  const flaps: THREE.Object3D[] = [];
   for (const side of [-1, 1]) {
+    if (spec.trunk !== undefined) {
+      // Big round ears on hinges at the side of the head, so they can flap.
+      const hinge = new THREE.Group();
+      hinge.position.set(side * r * 0.7, r * 0.1, -0.08);
+      const flap = blob(0.3, 1, 1.05, 0.18, spec.body, 72, 1);
+      flap.translate(side * 0.26, -0.03, 0);
+      const inner = blob(0.21, 1, 1.05, 0.12, spec.earInner, 73, 0);
+      inner.translate(side * 0.26, -0.04, 0.035);
+      hinge.add(mesh([flap, inner]));
+      head.add(hinge);
+      flaps.push(hinge);
+      continue;
+    }
     if (spec.roundEars) {
       headParts.push(at(blob(spec.earWidth, 0.6, 1, 1, spec.body, 70, 0), side * r * 1.02, r * 0.18, -0.02));
       headParts.push(
@@ -138,6 +165,24 @@ function quadruped(spec: QuadSpec): CharacterModel {
     headParts.push(at(painted(inner, spec.earInner), side * r * 0.55, r * 0.74 + spec.earHeight * 0.3, 0.06));
   }
   head.add(mesh(headParts));
+  // Trunk: a chain of segments hanging from the face, each one pivoting on the one before.
+  const trunkJoints: THREE.Object3D[] = [];
+  if (spec.trunk !== undefined) {
+    let parent: THREE.Object3D = head;
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const joint = new THREE.Group();
+      if (i === 0) joint.position.set(0, -r * 0.2, r * 0.86);
+      else joint.position.set(0, -0.07, 0.008);
+      const w = 0.105 - i * 0.01;
+      const seg = blob(w, 1, 1.5, 1, i === n - 1 ? spec.earInner : spec.trunk, 74 + i, 0);
+      seg.translate(0, -0.04, 0);
+      joint.add(mesh([seg]));
+      parent.add(joint);
+      parent = joint;
+      trunkJoints.push(joint);
+    }
+  }
   root.add(head);
 
   // Tail pivots at the rump.
@@ -157,6 +202,11 @@ function quadruped(spec: QuadSpec): CharacterModel {
         ),
       );
     }
+  } else if (spec.tuft !== undefined) {
+    // Short rope tail hanging down, ending in a tuft (elephant).
+    for (let i = 0; i < 3; i++)
+      tailParts.push(at(blob(0.045, 1, 1.6, 1, spec.body, 16 + i, 0), 0, -i * 0.08, -0.04 - i * 0.02));
+    tailParts.push(at(blob(0.065, 1, 1.3, 1, spec.tuft, 19, 0), 0, -0.25, -0.1));
   } else if (spec.tail === 'thin') {
     for (let i = 0; i < 4; i++) {
       tailParts.push(
@@ -176,7 +226,8 @@ function quadruped(spec: QuadSpec): CharacterModel {
     }
   }
   tail.add(mesh(tailParts));
-  tail.rotation.x = spec.tail === 'thin' || spec.tail === 'curl' ? -0.2 : 0.5;
+  tail.rotation.x =
+    spec.tuft !== undefined ? 0.35 : spec.tail === 'thin' || spec.tail === 'curl' ? -0.2 : 0.5;
   root.add(tail);
 
   const tailBase = tail.rotation.x;
@@ -195,6 +246,17 @@ function quadruped(spec: QuadSpec): CharacterModel {
       head.rotation.z = moving ? 0 : Math.sin(time * 0.45) * 0.08;
       tail.rotation.y = Math.sin(time * (moving ? 10 : 3)) * (moving ? 0.25 : 0.45);
       tail.rotation.x = tailBase + Math.sin(time * 1.3) * 0.05;
+      // Elephant: ears flap gently, the trunk sways and curls up now and then.
+      flaps.forEach(
+        (f, i) => (f.rotation.y = (i === 0 ? -1 : 1) * (0.15 + Math.sin(time * (moving ? 6 : 1.8)) * 0.18)),
+      );
+      if (trunkJoints.length) {
+        const curl = moving ? 0.12 : Math.max(0, Math.sin(time * 0.6)) * 0.42;
+        trunkJoints.forEach((j, i) => {
+          j.rotation.x = (i === 0 ? 0.25 : 0) - curl * (i / trunkJoints.length) * 1.6;
+          j.rotation.z = Math.sin(time * (moving ? 7 : 1.6) - i * 0.6) * (moving ? 0.1 : 0.16);
+        });
+      }
     },
     dispose() {
       root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
@@ -320,6 +382,20 @@ export function createModel(species: Species): CharacterModel {
         snout: 0,
         roundEars: true,
         face: 0xf3d9b8,
+      });
+    case 'elephant':
+      return quadruped({
+        body: 0xa9b6cc,
+        belly: 0xc9d3e3,
+        legs: 0x9ba9c0,
+        earInner: 0xffb8c8,
+        earHeight: 0.1,
+        earWidth: 0.1,
+        muzzle: 0xa9b6cc,
+        tail: 'thin',
+        tuft: 0x6f7c93,
+        snout: 0,
+        trunk: 0xa3b1c8,
       });
   }
 }

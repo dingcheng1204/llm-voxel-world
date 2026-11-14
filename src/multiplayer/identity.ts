@@ -1,4 +1,4 @@
-// Who this browser's player is: a stable id, a display name and a look (snake / tiger / monkey).
+// Who this browser's player is: a stable id, a display name and a look (snake / tiger / monkey / elephant).
 // Not stored: guests get a fresh identity every visit, signed-in players get theirs from their save.
 
 import { PLAYER_SPECIES, type PlayerSpecies } from '../agents/species';
@@ -12,11 +12,17 @@ export interface Identity {
 
 const KEY = 'voxel:player';
 
-export const SPECIES_LABEL: Record<PlayerSpecies, string> = { snake: '蛇', tiger: '老虎', monkey: '猴子' };
+export const SPECIES_LABEL: Record<PlayerSpecies, string> = {
+  snake: '蛇',
+  tiger: '老虎',
+  monkey: '猴子',
+  elephant: '大象',
+};
 export const SPECIES_COLOR: Record<PlayerSpecies, string> = {
   snake: '#3fae5a',
   tiger: '#e8892b',
   monkey: '#9a6a46',
+  elephant: '#7d8fb0',
 };
 /** Names the characters use — players can't take them. */
 const RESERVED = ['clio', 'gem'];

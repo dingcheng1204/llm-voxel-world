@@ -70,7 +70,7 @@ const spawns = lineup
       return { x, y: world.terrain.heightAt(x, z) + 1, z };
     })
   : world.terrain.spawnPoints(CAST.length);
-// The human player: a name and an animal (snake / tiger / monkey), chosen when joining.
+// The human player: a name and an animal (snake / tiger / monkey / elephant), chosen when joining.
 // A fresh identity every visit: guests are not remembered; signed-in players get theirs from the save.
 let me: Identity = { id: newPlayerId(), name: '', species: 'tiger' };
 forgetGuestData(cfg.seed);
@@ -173,7 +173,7 @@ const siteGhosts = new SiteGhosts(
   (id) => agents.find((a) => a.id === id)?.member.tagColor ?? '#5b6b86',
 );
 ctx.scene.add(siteGhosts.group);
-// ?lineup=1 also stands up the three animals players can pick, to check the models.
+// ?lineup=1 also stands up the animals players can pick, to check the models.
 const lineupModels = lineup
   ? PLAYER_SPECIES.map((sp, i) => {
       const m = createModel(sp);

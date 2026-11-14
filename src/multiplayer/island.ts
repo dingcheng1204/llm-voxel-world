@@ -6,7 +6,7 @@
 
 import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../config/supabase';
-import type { PlayerSpecies } from '../agents/species';
+import { PLAYER_SPECIES, type PlayerSpecies } from '../agents/species';
 import type { Identity } from './identity';
 
 export interface OnlinePlayer {
@@ -249,7 +249,8 @@ export class Island {
       this.players.set(key, {
         id: key,
         name: String(meta.name ?? '').slice(0, 16) || '旅人',
-        species: meta.species,
+        // Unknown looks (e.g. from a newer version) fall back to the tiger instead of breaking the model.
+        species: PLAYER_SPECIES.includes(meta.species) ? meta.species : 'tiger',
         pos: prev?.pos ?? null,
         seenAt: prev?.seenAt ?? performance.now(),
         combat: prev?.combat ?? freshCombat(),
